@@ -1,426 +1,470 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SnapLedger — AI Receipt Tracker (Sheets & Drive Sync)</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Inter Font -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: #f8fafc;
-            color: #0f172a;
-        }
-        /* Animated laser scan line for OCR loading state */
-        @keyframes scanLaser {
-            0% { top: 0%; opacity: 0.9; }
-            50% { top: 92%; opacity: 1; }
-            100% { top: 0%; opacity: 0.9; }
-        }
-        .scan-laser {
-            position: absolute;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, transparent, #6366f1, #10b981, #6366f1, transparent);
-            box-shadow: 0 0 14px 3px rgba(99, 102, 241, 0.65);
-            animation: scanLaser 2s ease-in-out infinite;
-        }
-        /* Custom subtle scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 9999px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SnapLedger — Receipt OCR & Google Sheets/Drive Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    .drop-active { border-color: #2563eb !important; background-color: #eff6ff !important; }
+    .pill-active { background-color: #0f172a; color: #ffffff; border-color: #0f172a; }
+    .pill-inactive { background-color: #ffffff; color: #334155; border-color: #cbd5e1; }
+    .pill-inactive:hover { border-color: #64748b; background-color: #f8fafc; }
+    .toast-enter { animation: slideUp 0.25s ease-out forwards; }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
 </head>
-<body class="min-h-screen flex flex-col antialiased selection:bg-indigo-100 selection:text-indigo-900">
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
 
-    <!-- ==================== HEADER ==================== -->
-    <header class="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-slate-200/80">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
-            <!-- Brand -->
-            <div class="flex items-center gap-2.5 min-w-0">
-                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-emerald-500 flex items-center justify-center text-white shadow-sm shrink-0">
-                    <i data-lucide="receipt-text" class="w-5 h-5"></i>
-                </div>
-                <div class="truncate">
-                    <h1 class="text-base sm:text-lg font-bold tracking-tight text-slate-900 leading-tight truncate">SnapLedger</h1>
-                    <p class="text-[11px] text-slate-500 font-medium hidden sm:block">AI OCR • Google Sheets & Drive Sync</p>
-                </div>
-            </div>
-
-            <!-- Right Actions -->
-            <div class="flex items-center gap-2 sm:gap-3 shrink-0">
-                <!-- Manage Companies / Accounts Button -->
-                <button id="openAccountsBtn" type="button" title="Manage Companies & Accounts" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 transition-all active:scale-[0.98] cursor-pointer">
-                    <i data-lucide="building-2" class="w-4 h-4"></i>
-                    <span class="hidden sm:inline">Companies</span>
-                </button>
-
-                <!-- Google Sync Status Button -->
-                <button id="openSetupBtn" type="button" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium border transition-all active:scale-[0.98] cursor-pointer">
-                    <span id="syncStatusDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
-                    <span id="syncStatusText" class="hidden sm:inline">Connect Google</span>
-                    <span class="sm:hidden">Google</span>
-                    <i data-lucide="settings-2" class="w-4 h-4 opacity-70"></i>
-                </button>
-
-                <!-- Export CSV Button -->
-                <button id="exportCsvBtn" type="button" title="Export CSV" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all active:scale-[0.98] cursor-pointer">
-                    <i data-lucide="download" class="w-4 h-4"></i>
-                    <span class="hidden md:inline">Export CSV</span>
-                </button>
-            </div>
+  <!-- Top Navigation Bar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-sm">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/>
+          </svg>
         </div>
-    </header>
+        <div class="truncate">
+          <h1 class="text-base sm:text-lg font-bold tracking-tight text-slate-900 leading-tight">SnapLedger</h1>
+          <p class="text-[11px] text-slate-500 hidden sm:block">Receipt OCR &bull; Google Sheets &amp; Drive Sync</p>
+        </div>
+      </div>
 
-    <!-- ==================== MAIN CONTENT ==================== -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <!-- OCR Gear Icon Button (Always visible on mobile & desktop) -->
+        <button id="btnOcrSettings" type="button" title="OCR Engine Settings"
+          class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg border border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100 transition">
+          <svg class="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+          <span>OCR</span>
+        </button>
 
-        <!-- KPI Summary Strip -->
-        <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <!-- Total Spent -->
-            <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex items-center justify-between">
-                <div>
-                    <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Tracked</p>
-                    <p id="statTotalAmount" class="text-2xl font-extrabold text-slate-900 mt-1">MYR 0.00</p>
-                    <p id="statMonthAmount" class="text-xs text-slate-500 mt-0.5">This month: MYR 0.00</p>
-                </div>
-                <div class="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                    <i data-lucide="wallet" class="w-5 h-5"></i>
-                </div>
-            </div>
+        <button id="btnManageCompanies" type="button"
+          class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition">
+          <svg class="w-4 h-4 text-slate-500 hidden sm:block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+          </svg>
+          <span>Companies</span>
+        </button>
 
-            <!-- Total Receipts -->
-            <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex items-center justify-between">
-                <div>
-                    <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Receipts Scanned</p>
-                    <p id="statTotalCount" class="text-2xl font-extrabold text-slate-900 mt-1">0</p>
-                    <p class="text-xs text-slate-500 mt-0.5">AI-extracted records</p>
-                </div>
-                <div class="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-                    <i data-lucide="scan-line" class="w-5 h-5"></i>
-                </div>
-            </div>
+        <button id="btnConnectGoogle" type="button"
+          class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm">
+          <span id="googleStatusDot" class="w-2 h-2 rounded-full bg-blue-200"></span>
+          <span id="googleBtnLabel">Connect Google</span>
+        </button>
+      </div>
+    </div>
+  </header>
 
-            <!-- Cloud Sync Status -->
-            <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex items-center justify-between">
-                <div>
-                    <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Google Cloud Sync</p>
-                    <p id="statSyncedCount" class="text-2xl font-extrabold text-slate-900 mt-1">0 / 0</p>
-                    <p id="statSyncHint" class="text-xs text-slate-500 mt-0.5">Sheets & Drive backup</p>
-                </div>
-                <div class="w-11 h-11 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
-                    <i data-lucide="cloud-upload" class="w-5 h-5"></i>
-                </div>
-            </div>
-        </section>
+  <!-- Main Workspace -->
+  <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
 
-        <!-- Two-Column Workspace -->
-        <section class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+    <!-- Left Column: Capture / Upload & Receipt Form -->
+    <section class="lg:col-span-5 space-y-5">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold text-slate-900">1. Capture or Upload Receipt</h2>
+            <p class="text-xs text-slate-500">Auto-extracts date, merchant &amp; total via OCR</p>
+          </div>
+          <button id="btnSampleReceipt" type="button"
+            class="text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition">
+            Try Sample Receipt
+          </button>
+        </div>
 
-            <!-- LEFT COLUMN: Capture / Upload & OCR Form -->
-            <div class="lg:col-span-5 bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-                <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <i data-lucide="sparkles" class="w-4 h-4 text-indigo-600"></i>
-                        <h2 class="font-bold text-slate-900 text-sm sm:text-base">Scan New Receipt</h2>
-                    </div>
-                    <button id="demoReceiptBtn" type="button" class="text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer">
-                        Try Sample Receipt
-                    </button>
-                </div>
+        <div class="p-5 space-y-4">
+          <!-- Upload / Dropzone -->
+          <div id="dropZone"
+            class="relative border-2 border-dashed border-slate-300 rounded-xl p-5 text-center transition cursor-pointer hover:border-slate-400 bg-slate-50/50">
+            <input id="fileInput" type="file" accept="image/*" class="hidden" />
+            <input id="cameraInput" type="file" accept="image/*" capture="environment" class="hidden" />
 
-                <div class="p-5 space-y-5">
-                    <!-- Hidden File Inputs -->
-                    <input type="file" id="fileUploadInput" accept="image/*" class="hidden">
-                    <input type="file" id="cameraCaptureInput" accept="image/*" capture="environment" class="hidden">
-
-                    <!-- Dropzone / Preview Container -->
-                    <div id="dropzone" class="relative rounded-2xl border-2 border-dashed border-slate-300 hover:border-indigo-400 bg-slate-50/70 transition-all overflow-hidden">
-                        <!-- Empty State -->
-                        <div id="uploadPrompt" class="p-6 text-center space-y-4">
-                            <div class="w-12 h-12 rounded-2xl bg-white shadow-xs border border-slate-200/80 mx-auto flex items-center justify-center text-indigo-600">
-                                <i data-lucide="camera" class="w-6 h-6"></i>
-                            </div>
-                            <div>
-                                <p class="text-sm font-semibold text-slate-800">Upload or capture a receipt</p>
-                                <p class="text-xs text-slate-500 mt-1">Drag & drop an image, or use the buttons below. Gemini AI will extract date, amount & merchant.</p>
-                            </div>
-                            <div class="flex flex-wrap items-center justify-center gap-2.5 pt-1">
-                                <button id="triggerCameraBtn" type="button" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold shadow-xs transition-all active:scale-[0.98] cursor-pointer">
-                                    <i data-lucide="camera" class="w-4 h-4"></i>
-                                    Take Photo
-                                </button>
-                                <button id="triggerUploadBtn" type="button" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs sm:text-sm font-semibold shadow-xs transition-all active:scale-[0.98] cursor-pointer">
-                                    <i data-lucide="upload" class="w-4 h-4"></i>
-                                    Upload Image
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Preview State -->
-                        <div id="imagePreviewWrapper" class="hidden relative bg-slate-900 flex items-center justify-center min-h-[220px] max-h-[300px]">
-                            <img id="receiptPreviewImg" src="" alt="Receipt Preview" class="max-h-[300px] w-auto object-contain mx-auto">
-
-                            <!-- OCR Scanning Overlay -->
-                            <div id="ocrLoadingOverlay" class="hidden absolute inset-0 bg-slate-900/60 backdrop-blur-[2px] flex flex-col items-center justify-center text-white p-4">
-                                <div class="scan-laser"></div>
-                                <div class="w-10 h-10 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin mb-3"></div>
-                                <p class="text-sm font-semibold tracking-wide">AI Reading Receipt...</p>
-                                <p class="text-xs text-slate-300 mt-1">Extracting merchant, date & total amount</p>
-                            </div>
-
-                            <!-- Clear / Rescan Controls -->
-                            <div id="previewControls" class="absolute top-3 right-3 flex items-center gap-2">
-                                <button id="rescanBtn" type="button" title="Re-run AI OCR" class="p-2 rounded-xl bg-slate-900/75 hover:bg-slate-900 text-white backdrop-blur-sm transition-colors cursor-pointer">
-                                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                                </button>
-                                <button id="clearImageBtn" type="button" title="Remove Image" class="p-2 rounded-xl bg-rose-600/85 hover:bg-rose-600 text-white backdrop-blur-sm transition-colors cursor-pointer">
-                                    <i data-lucide="x" class="w-4 h-4"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Extracted Data Review Form -->
-                    <form id="receiptForm" class="space-y-4">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Extracted Details</span>
-                            <span id="aiBadge" class="hidden inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                <i data-lucide="check-circle-2" class="w-3 h-3"></i>
-                                AI Extracted
-                            </span>
-                        </div>
-
-                        <!-- Merchant -->
-                        <div>
-                            <label for="merchantInput" class="block text-xs font-semibold text-slate-700 mb-1">Merchant / Store Name *</label>
-                            <div class="relative">
-                                <i data-lucide="store" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                                <input type="text" id="merchantInput" required placeholder="e.g., Jaya Grocer, Starbucks" class="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-sm transition-all">
-                            </div>
-                        </div>
-
-                        <!-- Date & Amount Row -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label for="dateInput" class="block text-xs font-semibold text-slate-700 mb-1">Receipt Date *</label>
-                                <div class="relative">
-                                    <i data-lucide="calendar" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                                    <input type="date" id="dateInput" required class="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-sm transition-all">
-                                </div>
-                            </div>
-                            <div>
-                                <label for="amountInput" class="block text-xs font-semibold text-slate-700 mb-1">Total Amount *</label>
-                                <div class="flex rounded-xl border border-slate-200 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 overflow-hidden transition-all">
-                                    <select id="currencyInput" class="bg-slate-50 text-slate-700 text-xs font-bold px-2.5 border-r border-slate-200 outline-none cursor-pointer">
-                                        <option value="MYR">MYR</option>
-                                        <option value="USD">USD</option>
-                                        <option value="SGD">SGD</option>
-                                        <option value="EUR">EUR</option>
-                                        <option value="GBP">GBP</option>
-                                        <option value="JPY">JPY</option>
-                                    </select>
-                                    <input type="number" id="amountInput" step="0.01" min="0" required placeholder="0.00" class="w-full px-3 py-2.5 outline-none text-sm font-semibold">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Category & Notes -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label for="categoryInput" class="block text-xs font-semibold text-slate-700 mb-1">Category</label>
-                                <select id="categoryInput" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-sm bg-white cursor-pointer">
-                                    <option value="Food & Dining">Food & Dining</option>
-                                    <option value="Groceries">Groceries</option>
-                                    <option value="Transport & Fuel">Transport & Fuel</option>
-                                    <option value="Shopping">Shopping</option>
-                                    <option value="Utilities & Bills">Utilities & Bills</option>
-                                    <option value="Health & Pharmacy">Health & Pharmacy</option>
-                                    <option value="Office & Business">Office & Business</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label for="notesInput" class="block text-xs font-semibold text-slate-700 mb-1">Items / Notes</label>
-                                <input type="text" id="notesInput" placeholder="Optional summary" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-sm transition-all">
-                            </div>
-                        </div>
-
-                        <!-- Account / Company Tick Selector -->
-                        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2.5">
-                            <div class="flex items-center justify-between gap-2">
-                                <label class="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                                    <i data-lucide="building-2" class="w-3.5 h-3.5 text-indigo-600"></i>
-                                    Account / Company *
-                                </label>
-                                <button id="inlineAddAccountBtn" type="button" class="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-lg transition-colors cursor-pointer">
-                                    <i data-lucide="plus" class="w-3 h-3"></i>
-                                    Register New
-                                </button>
-                            </div>
-                            <!-- Tickable Account Pills -->
-                            <div id="accountTickList" class="flex flex-wrap gap-2">
-                                <!-- Populated via JS -->
-                            </div>
-                            <!-- Tax Deductible Checkbox -->
-                            <label class="inline-flex items-center gap-2 pt-1.5 border-t border-slate-200/70 w-full cursor-pointer select-none">
-                                <input type="checkbox" id="taxDeductibleInput" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
-                                <span class="text-xs font-medium text-slate-700">Mark as <strong class="text-slate-900">Tax Deductible / Claimable</strong></span>
-                            </label>
-                        </div>
-
-                        <!-- Submit Button -->
-                        <button type="submit" id="saveReceiptBtn" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-semibold text-sm shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 active:scale-[0.99] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
-                            <i data-lucide="save" class="w-4 h-4"></i>
-                            <span id="saveBtnLabel">Save Receipt</span>
-                        </button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- RIGHT COLUMN: Receipt History & Cloud Ledger -->
-            <div class="lg:col-span-7 bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
-                <div class="px-5 py-4 border-b border-slate-100 space-y-3">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i>
-                            <h2 class="font-bold text-slate-900 text-sm sm:text-base">Recorded Receipts</h2>
-                        </div>
-
-                        <!-- Search Input -->
-                        <div class="relative w-full sm:w-56">
-                            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                            <input type="text" id="searchInput" placeholder="Search merchant, company..." class="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none">
-                        </div>
-                    </div>
-
-                    <!-- Filters Row: Company/Account, Category & Tax Toggle -->
-                    <div class="flex flex-wrap items-center gap-2">
-                        <select id="filterAccount" class="flex-1 min-w-[140px] px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm bg-white outline-none focus:border-indigo-500 cursor-pointer font-medium text-slate-700">
-                            <option value="ALL">All Companies / Accounts</option>
-                        </select>
-                        <select id="filterCategory" class="flex-1 min-w-[130px] px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm bg-white outline-none focus:border-indigo-500 cursor-pointer text-slate-700">
-                            <option value="ALL">All Categories</option>
-                            <option value="Food & Dining">Food & Dining</option>
-                            <option value="Groceries">Groceries</option>
-                            <option value="Transport & Fuel">Transport & Fuel</option>
-                            <option value="Shopping">Shopping</option>
-                            <option value="Utilities & Bills">Utilities & Bills</option>
-                            <option value="Health & Pharmacy">Health & Pharmacy</option>
-                            <option value="Office & Business">Office & Business</option>
-                            <option value="Other">Other</option>
-                        </select>
-                        <label class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer select-none transition-colors">
-                            <input type="checkbox" id="filterTaxOnly" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
-                            Tax Only
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Filtered Summary / Tax Extraction Bar -->
-                <div id="filteredSummaryBar" class="hidden px-5 py-2.5 bg-indigo-50/80 border-b border-indigo-100 flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <div class="flex items-center gap-2 text-indigo-900">
-                        <i data-lucide="filter" class="w-3.5 h-3.5 text-indigo-600"></i>
-                        <span id="filteredSummaryText" class="font-semibold">Showing 0 receipts</span>
-                    </div>
-                    <button id="exportFilteredBtn" type="button" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors cursor-pointer">
-                        <i data-lucide="download" class="w-3 h-3"></i>
-                        Export Filtered CSV
-                    </button>
-                </div>
-
-                <!-- Receipt List Container -->
-                <div id="receiptList" class="divide-y divide-slate-100 min-h-[360px] max-h-[680px] overflow-y-auto">
-                    <!-- Populated via JS -->
-                </div>
-            </div>
-        </section>
-    </main>
-
-    <!-- ==================== GOOGLE SHEETS & DRIVE SETUP MODAL ==================== -->
-    <div id="setupModal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-        <div class="bg-white rounded-2xl max-w-2xl w-full shadow-xl border border-slate-200 overflow-hidden my-auto max-h-[90vh] flex flex-col">
-            <!-- Modal Header -->
-            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-                <div class="flex items-center gap-2.5">
-                    <div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                        <i data-lucide="sheet" class="w-5 h-5"></i>
-                    </div>
-                    <div>
-                        <h3 class="font-bold text-slate-900 text-base">Google Sheets & Drive Integration</h3>
-                        <p class="text-xs text-slate-500">Auto-log rows to Google Sheets & save receipt images to Google Drive</p>
-                    </div>
-                </div>
-                <button id="closeSetupModal" type="button" class="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
-                    <i data-lucide="x" class="w-5 h-5"></i>
+            <!-- Empty State -->
+            <div id="uploadEmptyState" class="space-y-3">
+              <div class="w-11 h-11 rounded-full bg-white border border-slate-200 mx-auto flex items-center justify-center text-slate-500 shadow-xs">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-slate-700">Drop receipt image here</p>
+                <p class="text-xs text-slate-500 mt-0.5">JPG, PNG, WEBP &bull; Compressed automatically for Drive</p>
+              </div>
+              <div class="flex items-center justify-center gap-2 pt-1">
+                <button id="btnCamera" type="button"
+                  class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                  </svg>
+                  Take Photo
                 </button>
+                <button id="btnUploadFile" type="button"
+                  class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 transition">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                  </svg>
+                  Upload Image
+                </button>
+              </div>
             </div>
 
-            <!-- Modal Body -->
-            <div class="p-6 overflow-y-auto space-y-5 text-sm">
-                <!-- Webhook URL Input -->
-                <div class="bg-indigo-50/60 border border-indigo-100 rounded-2xl p-4 space-y-3">
-                    <label for="webhookUrlInput" class="block text-xs font-bold uppercase tracking-wider text-indigo-900">
-                        Google Apps Script Web App URL
-                    </label>
-                    <input type="url" id="webhookUrlInput" placeholder="https://script.google.com/macros/s/AKfycb.../exec" class="w-full px-3.5 py-2.5 rounded-xl border border-indigo-200 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-mono">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                        <p class="text-xs text-indigo-700">Saved locally in your browser. Leave blank to use offline/local mode.</p>
-                        <div class="flex items-center gap-2">
-                            <button id="testWebhookBtn" type="button" class="px-3.5 py-2 rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold transition-colors cursor-pointer">
-                                Test Connection
-                            </button>
-                            <button id="saveWebhookBtn" type="button" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors cursor-pointer">
-                                Save URL
-                            </button>
-                        </div>
-                    </div>
-                </div>
+            <!-- Image Preview State -->
+            <div id="previewContainer" class="hidden space-y-3">
+              <div class="relative rounded-lg overflow-hidden bg-slate-900/5 border border-slate-200 max-h-64 flex items-center justify-center">
+                <img id="previewImage" src="" alt="Receipt Preview" class="max-h-64 w-auto object-contain" />
+                <button id="btnClearImage" type="button" title="Remove image"
+                  class="absolute top-2 right-2 w-7 h-7 rounded-full bg-slate-900/75 text-white hover:bg-slate-900 flex items-center justify-center transition">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <span id="ocrStatusBadge" class="text-xs text-slate-600 flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-slate-400"></span> Ready to scan
+                </span>
+                <button id="btnReRunOcr" type="button"
+                  class="text-xs font-semibold text-blue-600 hover:text-blue-700 px-2.5 py-1 rounded-md hover:bg-blue-50 transition">
+                  Re-scan OCR
+                </button>
+              </div>
+            </div>
+          </div>
 
-                <!-- 4-Step Guide -->
-                <div class="space-y-3">
-                    <h4 class="font-bold text-slate-900 text-sm">How to set up in 60 seconds (Free, No API Keys):</h4>
-                    <ol class="list-decimal list-inside space-y-2 text-xs sm:text-sm text-slate-600 leading-relaxed">
-                        <li>Open a new or existing <strong>Google Sheet</strong> in your Google Drive.</li>
-                        <li>In the top menu, click <strong>Extensions &rarr; Apps Script</strong>.</li>
-                        <li>Delete any existing code, paste the script below, and click <strong>Save</strong> (💾).</li>
-                        <li>Click <strong>Deploy &rarr; New deployment</strong> &rarr; Select type <strong>Web app</strong> &rarr; Set <em>Execute as:</em> <strong>Me</strong> and <em>Who has access:</em> <strong>Anyone</strong> &rarr; Click <strong>Deploy</strong>, authorize permissions, and paste the resulting Web App URL above!</li>
-                    </ol>
-                </div>
+          <!-- OCR Progress Bar -->
+          <div id="ocrProgressWrap" class="hidden bg-blue-50 border border-blue-100 rounded-xl p-3">
+            <div class="flex items-center justify-between text-xs font-medium text-blue-800 mb-1.5">
+              <span id="ocrProgressText">Scanning receipt text...</span>
+              <span id="ocrProgressPct">0%</span>
+            </div>
+            <div class="w-full h-1.5 bg-blue-200 rounded-full overflow-hidden">
+              <div id="ocrProgressBar" class="h-full bg-blue-600 rounded-full transition-all duration-200" style="width: 5%"></div>
+            </div>
+          </div>
 
-                <!-- Copyable Apps Script Code -->
-                <div class="space-y-2">
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Google Apps Script (Code.gs)</span>
-                        <button id="copyScriptBtn" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors cursor-pointer">
-                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                            Copy Script
-                        </button>
-                    </div>
-                    <pre id="gasCodeBlock" class="bg-slate-900 text-emerald-300 p-4 rounded-xl text-[11px] sm:text-xs font-mono overflow-x-auto leading-relaxed select-all">function doPost(e) {
+          <!-- Receipt Details Form -->
+          <form id="receiptForm" class="space-y-4 pt-1">
+            <!-- Account / Company Selector (Tickable Pills) -->
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-xs font-semibold text-slate-700">Account / Company</label>
+                <button id="btnQuickAddCompany" type="button"
+                  class="text-xs font-medium text-blue-600 hover:text-blue-700">
+                  + Register New
+                </button>
+              </div>
+              <div id="companyPills" class="flex flex-wrap gap-1.5"></div>
+              <input type="hidden" id="selectedAccount" value="Personal" />
+            </div>
+
+            <!-- Merchant -->
+            <div>
+              <label for="inputMerchant" class="block text-xs font-semibold text-slate-700 mb-1">Merchant / Vendor</label>
+              <input id="inputMerchant" type="text" required placeholder="e.g., Petronas, Starbucks, Mydin"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+
+            <!-- Date & Amount -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="inputDate" class="block text-xs font-semibold text-slate-700 mb-1">Receipt Date</label>
+                <input id="inputDate" type="date" required
+                  class="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <div>
+                <label for="inputAmount" class="block text-xs font-semibold text-slate-700 mb-1">Total Amount</label>
+                <div class="flex">
+                  <select id="inputCurrency"
+                    class="px-2 py-2 text-xs font-semibold rounded-l-lg border border-r-0 border-slate-300 bg-slate-50 text-slate-700 focus:outline-none">
+                    <option value="MYR" selected>MYR</option>
+                    <option value="USD">USD</option>
+                    <option value="SGD">SGD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                  </select>
+                  <input id="inputAmount" type="number" step="0.01" min="0" required placeholder="0.00"
+                    class="w-full px-3 py-2 text-sm rounded-r-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Category & Tax Checkbox -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+              <div>
+                <label for="inputCategory" class="block text-xs font-semibold text-slate-700 mb-1">Category</label>
+                <select id="inputCategory"
+                  class="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  <option value="Food & Beverage">Food &amp; Beverage</option>
+                  <option value="Fuel & Transport">Fuel &amp; Transport</option>
+                  <option value="Office & Supplies">Office &amp; Supplies</option>
+                  <option value="Utilities & Bills">Utilities &amp; Bills</option>
+                  <option value="Equipment & Hardware">Equipment &amp; Hardware</option>
+                  <option value="Travel & Lodging">Travel &amp; Lodging</option>
+                  <option value="Software & Subscriptions">Software &amp; Subscriptions</option>
+                  <option value="Medical & Health">Medical &amp; Health</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <label class="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:bg-slate-100 transition h-[38px]">
+                <input id="inputTax" type="checkbox" class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300" />
+                <span class="text-xs font-semibold text-slate-700 select-none">Tax Deductible / Claimable</span>
+              </label>
+            </div>
+
+            <!-- Notes -->
+            <div>
+              <label for="inputNotes" class="block text-xs font-semibold text-slate-700 mb-1">Notes (Optional)</label>
+              <input id="inputNotes" type="text" placeholder="e.g., Client lunch, Invoice #1042, Site visit fuel"
+                class="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+
+            <!-- Submit Button -->
+            <button id="btnSaveReceipt" type="submit"
+              class="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-60">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+              </svg>
+              <span id="saveBtnLabel">Save Receipt</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Recorded Receipts, Filters & Tax Export -->
+    <section class="lg:col-span-7 flex flex-col gap-4">
+      <!-- Filter & Summary Card -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-sm font-semibold text-slate-900">2. Recorded Receipts</h2>
+            <p class="text-xs text-slate-500">Filter by company or tax status to extract reports</p>
+          </div>
+          <button id="btnExportCsv" type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            Export Filtered CSV
+          </button>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+          <div class="sm:col-span-4 relative">
+            <input id="filterSearch" type="text" placeholder="Search merchant or notes..."
+              class="w-full pl-8 pr-3 py-2 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+          </div>
+          <div class="sm:col-span-3">
+            <select id="filterCompany"
+              class="w-full px-2.5 py-2 text-xs font-medium rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="ALL">All Companies / Accounts</option>
+            </select>
+          </div>
+          <div class="sm:col-span-3">
+            <select id="filterCategory"
+              class="w-full px-2.5 py-2 text-xs font-medium rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="ALL">All Categories</option>
+              <option value="Food & Beverage">Food &amp; Beverage</option>
+              <option value="Fuel & Transport">Fuel &amp; Transport</option>
+              <option value="Office & Supplies">Office &amp; Supplies</option>
+              <option value="Utilities & Bills">Utilities &amp; Bills</option>
+              <option value="Equipment & Hardware">Equipment &amp; Hardware</option>
+              <option value="Travel & Lodging">Travel &amp; Lodging</option>
+              <option value="Software & Subscriptions">Software &amp; Subscriptions</option>
+              <option value="Medical & Health">Medical &amp; Health</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <button id="btnFilterTax" type="button" data-active="false"
+              class="w-full px-2.5 py-2 text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 transition">
+              Tax Only
+            </button>
+          </div>
+        </div>
+
+        <!-- Summary Metrics -->
+        <div class="grid grid-cols-3 gap-3 pt-1">
+          <div class="rounded-xl bg-slate-50 border border-slate-200/80 p-3">
+            <p class="text-[11px] font-medium text-slate-500">Filtered Total</p>
+            <p id="statTotal" class="text-base sm:text-lg font-bold text-slate-900 mt-0.5">MYR 0.00</p>
+          </div>
+          <div class="rounded-xl bg-emerald-50/70 border border-emerald-200/70 p-3">
+            <p class="text-[11px] font-medium text-emerald-700">Tax Deductible</p>
+            <p id="statTaxTotal" class="text-base sm:text-lg font-bold text-emerald-800 mt-0.5">MYR 0.00</p>
+          </div>
+          <div class="rounded-xl bg-slate-50 border border-slate-200/80 p-3">
+            <p class="text-[11px] font-medium text-slate-500">Receipts</p>
+            <p id="statCount" class="text-base sm:text-lg font-bold text-slate-900 mt-0.5">0</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Receipts List -->
+      <div id="receiptList" class="space-y-3"></div>
+    </section>
+  </main>
+
+  <!-- Modal: Connect Google Sheets & Drive -->
+  <div id="modalGoogle" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl max-w-xl w-full shadow-xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Connect Google Sheets &amp; Drive</h3>
+          <p class="text-xs text-slate-500">Paste your deployed Apps Script Web App URL (ending in /exec)</p>
+        </div>
+        <button data-close-modal="modalGoogle" class="text-slate-400 hover:text-slate-600 p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-4 overflow-y-auto">
+        <div>
+          <label for="inputScriptUrl" class="block text-xs font-semibold text-slate-700 mb-1.5">Google Apps Script Web App URL</label>
+          <input id="inputScriptUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec"
+            class="w-full px-3 py-2.5 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <p class="text-[11px] text-slate-500 mt-1.5">Must start with <code class="bg-slate-100 px-1 rounded">https://script.google.com/macros/s/</code> and end with <code class="bg-slate-100 px-1 rounded">/exec</code>.</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btnTestGoogle" type="button"
+            class="px-3.5 py-2 text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition">
+            Test Connection
+          </button>
+          <button id="btnSaveGoogle" type="button"
+            class="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
+            Save URL
+          </button>
+          <button id="btnDisconnectGoogle" type="button"
+            class="ml-auto px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition hidden">
+            Disconnect
+          </button>
+        </div>
+
+        <details class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <summary class="text-xs font-semibold text-slate-700 cursor-pointer select-none flex items-center justify-between">
+            <span>View / Copy Google Apps Script (Code.gs)</span>
+          </summary>
+          <div class="mt-3 space-y-2">
+            <div class="flex justify-end">
+              <button id="btnCopyAppsScript" type="button"
+                class="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-white border border-slate-200 px-2.5 py-1 rounded-md">
+                Copy Code.gs
+              </button>
+            </div>
+            <pre id="appsScriptPreview" class="text-[11px] font-mono bg-slate-900 text-slate-100 p-3 rounded-lg overflow-x-auto max-h-56"></pre>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Manage Companies / Accounts -->
+  <div id="modalCompanies" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Manage Companies &amp; Accounts</h3>
+          <p class="text-xs text-slate-500">Register entities so you can tick them on each receipt</p>
+        </div>
+        <button data-close-modal="modalCompanies" class="text-slate-400 hover:text-slate-600 p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-4">
+        <form id="addCompanyForm" class="flex gap-2">
+          <input id="inputNewCompany" type="text" required placeholder="e.g., ABC Sdn Bhd, Project X"
+            class="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <button type="submit"
+            class="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition">
+            Add
+          </button>
+        </form>
+        <div id="companyManageList" class="space-y-2 max-h-64 overflow-y-auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: OCR Settings (Optional Gemini API Key) -->
+  <div id="modalOcr" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">OCR Engine Settings</h3>
+          <p class="text-xs text-slate-500">Built-in OCR works free; add Gemini API key for AI Vision</p>
+        </div>
+        <button data-close-modal="modalOcr" class="text-slate-400 hover:text-slate-600 p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600 space-y-1">
+          <p class="font-semibold text-slate-800">Active Engine: <span id="activeOcrLabel" class="text-blue-600">Built-in Tesseract OCR</span></p>
+          <p>Leave the key blank to use free on-device Tesseract.js OCR. For higher accuracy on crumpled or faded receipts, paste a free Gemini API key from Google AI Studio.</p>
+        </div>
+        <div>
+          <label for="inputGeminiKey" class="block text-xs font-semibold text-slate-700 mb-1">Gemini API Key (Optional)</label>
+          <input id="inputGeminiKey" type="password" placeholder="AIza..."
+            class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <p class="text-[11px] text-slate-500 mt-1">Stored locally in your browser only.</p>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button id="btnClearGeminiKey" type="button" class="px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Use Free Local OCR</button>
+          <button id="btnSaveGeminiKey" type="button" class="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Full Image Preview -->
+  <div id="modalImagePreview" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/80 p-4">
+    <div class="relative max-w-2xl w-full flex flex-col items-center">
+      <button data-close-modal="modalImagePreview" class="self-end mb-2 text-white/80 hover:text-white bg-slate-900/60 rounded-full p-1.5">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+      <img id="fullPreviewImg" src="" alt="Full Receipt" class="max-h-[82vh] w-auto rounded-xl shadow-2xl border border-white/10 bg-white" />
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm"></div>
+
+  <script>
+    const STORAGE_KEYS = {
+      RECEIPTS: 'snapledger_receipts_v2',
+      COMPANIES: 'snapledger_companies_v2',
+      SCRIPT_URL: 'snapledger_script_url_v2',
+      GEMINI_KEY: 'snapledger_gemini_key_v2'
+    };
+
+    const APPS_SCRIPT_CODE = `function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
-    
-    // Health check / Test Connection
+
     if (data.action === 'test') {
       return ContentService.createTextOutput(JSON.stringify({
         status: 'success',
@@ -428,11 +472,10 @@
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 1. Save Receipt Image to Google Drive
     var folderName = 'SnapLedger Receipts';
     var folders = DriveApp.getFoldersByName(folderName);
     var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
-    
+
     var fileUrl = '';
     if (data.imageBase64) {
       var decoded = Utilities.base64Decode(data.imageBase64);
@@ -444,25 +487,20 @@
       fileUrl = file.getUrl();
     }
 
-    // 2. Append Record to Google Sheet
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName('Receipts') || ss.insertSheet('Receipts');
     if (sheet.getLastRow() === 0) {
-      sheet.appendRow(['Logged At', 'Receipt Date', 'Account / Company', 'Merchant', 'Amount', 'Currency', 'Category', 'Tax Deductible', 'Notes', 'Drive File Link']);
+      sheet.appendRow([
+        'Logged At', 'Receipt Date', 'Account / Company', 'Merchant',
+        'Amount', 'Currency', 'Category', 'Tax Deductible', 'Notes', 'Drive File Link'
+      ]);
       sheet.getRange(1, 1, 1, 10).setFontWeight('bold');
     }
-    
+
     sheet.appendRow([
-      new Date(),
-      data.date || '',
-      data.account || 'Personal',
-      data.merchant || '',
-      Number(data.amount) || 0,
-      data.currency || 'MYR',
-      data.category || 'Other',
-      data.taxDeductible ? 'Yes' : 'No',
-      data.notes || '',
-      fileUrl
+      new Date(), data.date || '', data.account || 'Personal', data.merchant || '',
+      Number(data.amount) || 0, data.currency || 'MYR', data.category || 'Other',
+      data.taxDeductible ? 'Yes' : 'No', data.notes || '', fileUrl
     ]);
 
     return ContentService.createTextOutput(JSON.stringify({
@@ -475,1150 +513,810 @@
       message: err.toString()
     })).setMimeType(ContentService.MimeType.JSON);
   }
-}</pre>
-                </div>
-            </div>
-        </div>
-    </div>
+}
 
-    <!-- ==================== MANAGE COMPANIES / ACCOUNTS MODAL ==================== -->
-    <div id="accountsModal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[85vh]">
-            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                <div class="flex items-center gap-2.5">
-                    <div class="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                        <i data-lucide="building-2" class="w-5 h-5"></i>
-                    </div>
-                    <div>
-                        <h3 class="font-bold text-slate-900 text-base">Companies & Accounts</h3>
-                        <p class="text-xs text-slate-500">Register entities to tick on receipts & filter for tax</p>
-                    </div>
-                </div>
-                <button id="closeAccountsModal" type="button" class="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
+function doGet() {
+  return ContentService
+    .createTextOutput(JSON.stringify({ status: 'ok', message: 'SnapLedger connected' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}`;
 
-            <div class="p-5 space-y-4 overflow-y-auto">
-                <!-- Register New Form -->
-                <form id="addAccountForm" class="flex gap-2">
-                    <input type="text" id="newAccountNameInput" required maxlength="45" placeholder="e.g., ABC Sdn Bhd, Personal, Client X" class="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-sm">
-                    <button type="submit" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold transition-colors shrink-0 cursor-pointer">
-                        Register
-                    </button>
-                </form>
+    let receipts = loadJSON(STORAGE_KEYS.RECEIPTS, []);
+    let companies = loadJSON(STORAGE_KEYS.COMPANIES, ['Personal', 'Business / Company']);
+    let scriptUrl = localStorage.getItem(STORAGE_KEYS.SCRIPT_URL) || '';
+    let geminiKey = localStorage.getItem(STORAGE_KEYS.GEMINI_KEY) || '';
+    let currentImageDataUrl = '';
+    let currentImageBase64 = '';
+    let taxFilterOnly = false;
 
-                <!-- Registered Accounts List -->
-                <div class="space-y-2">
-                    <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Registered Entities</p>
-                    <div id="manageAccountsList" class="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden">
-                        <!-- Populated via JS -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    function loadJSON(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch {
+        return fallback;
+      }
+    }
 
-    <!-- ==================== RECEIPT IMAGE VIEWER MODAL ==================== -->
-    <div id="viewerModal" class="hidden fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl">
-            <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
-                <div>
-                    <h3 id="viewerTitle" class="font-bold text-slate-900 text-sm">Receipt Image</h3>
-                    <p id="viewerSubtitle" class="text-xs text-slate-500"></p>
-                </div>
-                <button id="closeViewerModal" type="button" class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 cursor-pointer">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            <div class="bg-slate-950 p-4 flex items-center justify-center max-h-[65vh] overflow-auto">
-                <img id="viewerImg" src="" alt="Receipt" class="max-h-[60vh] w-auto rounded-lg object-contain">
-            </div>
-            <div id="viewerFooter" class="px-5 py-3 bg-slate-50 flex items-center justify-between text-xs">
-                <span id="viewerNotes" class="text-slate-600 truncate pr-3"></span>
-                <a id="viewerDriveLink" href="#" target="_blank" rel="noopener noreferrer" class="hidden inline-flex items-center gap-1.5 font-semibold text-emerald-700 hover:text-emerald-800 shrink-0">
-                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                    Open in Drive
-                </a>
-            </div>
-        </div>
-    </div>
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.RECEIPTS, JSON.stringify(receipts));
+        localStorage.setItem(STORAGE_KEYS.COMPANIES, JSON.stringify(companies));
+      } catch (e) {
+        receipts.forEach((r, idx) => { if (idx > 15) r.thumbnail = ''; });
+        try { localStorage.setItem(STORAGE_KEYS.RECEIPTS, JSON.stringify(receipts)); } catch {}
+      }
+    }
 
-    <!-- ==================== DELETE CONFIRMATION MODAL ==================== -->
-    <div id="deleteModal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl border border-slate-200 space-y-4">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
-                    <i data-lucide="trash-2" class="w-5 h-5"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-slate-900 text-base">Delete Receipt?</h3>
-                    <p class="text-xs text-slate-500 mt-0.5">This removes the record from this app (files already in Google Drive/Sheets remain untouched).</p>
-                </div>
-            </div>
-            <div class="flex items-center justify-end gap-2 pt-2">
-                <button id="cancelDeleteBtn" type="button" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer">Cancel</button>
-                <button id="confirmDeleteBtn" type="button" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer">Delete</button>
-            </div>
-        </div>
-    </div>
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const colors = {
+        success: 'bg-emerald-600 text-white',
+        error: 'bg-red-600 text-white',
+        warning: 'bg-amber-600 text-white',
+        info: 'bg-slate-900 text-white'
+      };
+      const el = document.createElement('div');
+      el.className = `toast-enter px-4 py-3 rounded-xl shadow-lg text-xs font-medium flex items-center gap-2 ${colors[type] || colors.info}`;
+      el.textContent = message;
+      container.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transition = 'opacity 0.25s';
+        setTimeout(() => el.remove(), 260);
+      }, 3600);
+    }
 
-    <!-- ==================== TOAST CONTAINER ==================== -->
-    <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-xs w-full pointer-events-none"></div>
+    function openModal(id) {
+      const m = document.getElementById(id);
+      m.classList.remove('hidden');
+      m.classList.add('flex');
+    }
 
-    <!-- ==================== APPLICATION SCRIPT ==================== -->
-    <script>
-        // =========================================================================
-        // STATE & CONFIGURATION
-        // =========================================================================
-        const STORAGE_KEY_RECEIPTS = 'snapledger_receipts_v1';
-        const STORAGE_KEY_WEBHOOK = 'snapledger_gas_webhook_v1';
-        const STORAGE_KEY_ACCOUNTS = 'snapledger_accounts_v1';
-        const GEMINI_API_KEY = ""; // Runtime-provided by Canvas environment
+    function closeModal(id) {
+      const m = document.getElementById(id);
+      m.classList.add('hidden');
+      m.classList.remove('flex');
+    }
 
-        let receipts = [];
-        let accounts = [];
-        let selectedAccount = 'Personal';
-        let webhookUrl = '';
-        let currentImageBase64 = null; // Raw base64 string (without data URL prefix)
-        let currentImageMime = 'image/jpeg';
-        let currentImageDataUrl = null; // Full data:image/... URL for preview & storage
-        let pendingDeleteId = null;
+    document.querySelectorAll('[data-close-modal]').forEach(btn => {
+      btn.addEventListener('click', () => closeModal(btn.getAttribute('data-close-modal')));
+    });
 
-        // =========================================================================
-        // DOM ELEMENTS
-        // =========================================================================
-        const el = {
-            openAccountsBtn: document.getElementById('openAccountsBtn'),
-            openSetupBtn: document.getElementById('openSetupBtn'),
-            syncStatusDot: document.getElementById('syncStatusDot'),
-            syncStatusText: document.getElementById('syncStatusText'),
-            exportCsvBtn: document.getElementById('exportCsvBtn'),
-            statTotalAmount: document.getElementById('statTotalAmount'),
-            statMonthAmount: document.getElementById('statMonthAmount'),
-            statTotalCount: document.getElementById('statTotalCount'),
-            statSyncedCount: document.getElementById('statSyncedCount'),
-            statSyncHint: document.getElementById('statSyncHint'),
+    ['modalGoogle', 'modalCompanies', 'modalOcr', 'modalImagePreview'].forEach(id => {
+      document.getElementById(id).addEventListener('click', (e) => {
+        if (e.target.id === id) closeModal(id);
+      });
+    });
 
-            demoReceiptBtn: document.getElementById('demoReceiptBtn'),
-            fileUploadInput: document.getElementById('fileUploadInput'),
-            cameraCaptureInput: document.getElementById('cameraCaptureInput'),
-            triggerCameraBtn: document.getElementById('triggerCameraBtn'),
-            triggerUploadBtn: document.getElementById('triggerUploadBtn'),
-            dropzone: document.getElementById('dropzone'),
-            uploadPrompt: document.getElementById('uploadPrompt'),
-            imagePreviewWrapper: document.getElementById('imagePreviewWrapper'),
-            receiptPreviewImg: document.getElementById('receiptPreviewImg'),
-            ocrLoadingOverlay: document.getElementById('ocrLoadingOverlay'),
-            rescanBtn: document.getElementById('rescanBtn'),
-            clearImageBtn: document.getElementById('clearImageBtn'),
+    function renderCompanies() {
+      const pillsWrap = document.getElementById('companyPills');
+      const selectedInput = document.getElementById('selectedAccount');
+      const filterSelect = document.getElementById('filterCompany');
+      const manageList = document.getElementById('companyManageList');
 
-            receiptForm: document.getElementById('receiptForm'),
-            aiBadge: document.getElementById('aiBadge'),
-            merchantInput: document.getElementById('merchantInput'),
-            dateInput: document.getElementById('dateInput'),
-            amountInput: document.getElementById('amountInput'),
-            currencyInput: document.getElementById('currencyInput'),
-            categoryInput: document.getElementById('categoryInput'),
-            notesInput: document.getElementById('notesInput'),
-            inlineAddAccountBtn: document.getElementById('inlineAddAccountBtn'),
-            accountTickList: document.getElementById('accountTickList'),
-            taxDeductibleInput: document.getElementById('taxDeductibleInput'),
-            saveReceiptBtn: document.getElementById('saveReceiptBtn'),
-            saveBtnLabel: document.getElementById('saveBtnLabel'),
+      if (!companies.includes(selectedInput.value)) {
+        selectedInput.value = companies[0] || 'Personal';
+      }
 
-            searchInput: document.getElementById('searchInput'),
-            filterAccount: document.getElementById('filterAccount'),
-            filterCategory: document.getElementById('filterCategory'),
-            filterTaxOnly: document.getElementById('filterTaxOnly'),
-            filteredSummaryBar: document.getElementById('filteredSummaryBar'),
-            filteredSummaryText: document.getElementById('filteredSummaryText'),
-            exportFilteredBtn: document.getElementById('exportFilteredBtn'),
-            receiptList: document.getElementById('receiptList'),
+      pillsWrap.innerHTML = '';
+      companies.forEach(name => {
+        const isActive = selectedInput.value === name;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition ${isActive ? 'pill-active' : 'pill-inactive'}`;
+        btn.innerHTML = `${isActive ? '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>' : ''}${escapeHtml(name)}`;
+        btn.addEventListener('click', () => {
+          selectedInput.value = name;
+          renderCompanies();
+        });
+        pillsWrap.appendChild(btn);
+      });
 
-            accountsModal: document.getElementById('accountsModal'),
-            closeAccountsModal: document.getElementById('closeAccountsModal'),
-            addAccountForm: document.getElementById('addAccountForm'),
-            newAccountNameInput: document.getElementById('newAccountNameInput'),
-            manageAccountsList: document.getElementById('manageAccountsList'),
+      const prevFilter = filterSelect.value;
+      filterSelect.innerHTML = '<option value="ALL">All Companies / Accounts</option>';
+      companies.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        filterSelect.appendChild(opt);
+      });
+      if (companies.includes(prevFilter)) filterSelect.value = prevFilter;
 
-            setupModal: document.getElementById('setupModal'),
-            closeSetupModal: document.getElementById('closeSetupModal'),
-            webhookUrlInput: document.getElementById('webhookUrlInput'),
-            saveWebhookBtn: document.getElementById('saveWebhookBtn'),
-            testWebhookBtn: document.getElementById('testWebhookBtn'),
-            copyScriptBtn: document.getElementById('copyScriptBtn'),
-            gasCodeBlock: document.getElementById('gasCodeBlock'),
+      manageList.innerHTML = '';
+      companies.forEach((name, idx) => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between px-3 py-2 rounded-lg border border-slate-200 bg-slate-50';
+        row.innerHTML = `
+          <span class="text-sm font-medium text-slate-800">${escapeHtml(name)}</span>
+          ${companies.length > 1 ? `<button type="button" data-del-company="${idx}" class="text-xs font-medium text-red-600 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50">Remove</button>` : '<span class="text-[11px] text-slate-400">Default</span>'}
+        `;
+        manageList.appendChild(row);
+      });
 
-            viewerModal: document.getElementById('viewerModal'),
-            closeViewerModal: document.getElementById('closeViewerModal'),
-            viewerTitle: document.getElementById('viewerTitle'),
-            viewerSubtitle: document.getElementById('viewerSubtitle'),
-            viewerImg: document.getElementById('viewerImg'),
-            viewerNotes: document.getElementById('viewerNotes'),
-            viewerDriveLink: document.getElementById('viewerDriveLink'),
+      manageList.querySelectorAll('[data-del-company]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const i = Number(btn.getAttribute('data-del-company'));
+          companies.splice(i, 1);
+          saveState();
+          renderCompanies();
+          renderReceipts();
+        });
+      });
+    }
 
-            deleteModal: document.getElementById('deleteModal'),
-            cancelDeleteBtn: document.getElementById('cancelDeleteBtn'),
-            confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
-            toastContainer: document.getElementById('toastContainer')
+    document.getElementById('btnManageCompanies').addEventListener('click', () => openModal('modalCompanies'));
+    document.getElementById('btnQuickAddCompany').addEventListener('click', () => {
+      openModal('modalCompanies');
+      setTimeout(() => document.getElementById('inputNewCompany').focus(), 100);
+    });
+
+    document.getElementById('addCompanyForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('inputNewCompany');
+      const val = input.value.trim();
+      if (!val) return;
+      if (companies.some(c => c.toLowerCase() === val.toLowerCase())) {
+        showToast('Company / Account already exists.', 'warning');
+        return;
+      }
+      companies.push(val);
+      document.getElementById('selectedAccount').value = val;
+      input.value = '';
+      saveState();
+      renderCompanies();
+      showToast(`Registered "${val}"`, 'success');
+    });
+
+    function compressImage(fileOrDataUrl, maxWidth = 1400, quality = 0.82) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
         };
+        img.onerror = reject;
+        if (typeof fileOrDataUrl === 'string') {
+          img.src = fileOrDataUrl;
+        } else {
+          const reader = new FileReader();
+          reader.onload = (ev) => { img.src = ev.target.result; };
+          reader.onerror = reject;
+          reader.readAsDataURL(fileOrDataUrl);
+        }
+      });
+    }
 
-        // =========================================================================
-        // INITIALIZATION
-        // =========================================================================
-        function init() {
-            lucide.createIcons();
-            loadFromStorage();
-            setDefaultDate();
-            renderAccountUI();
-            updateConnectionUI();
+    async function handleImageSelected(fileOrDataUrl) {
+      try {
+        const compressed = await compressImage(fileOrDataUrl);
+        currentImageDataUrl = compressed;
+        currentImageBase64 = compressed.split(',')[1];
+        document.getElementById('previewImage').src = compressed;
+        document.getElementById('uploadEmptyState').classList.add('hidden');
+        document.getElementById('previewContainer').classList.remove('hidden');
+        await runOCR(compressed);
+      } catch (err) {
+        showToast('Could not read image file.', 'error');
+      }
+    }
+
+    function clearImage() {
+      currentImageDataUrl = '';
+      currentImageBase64 = '';
+      document.getElementById('previewImage').src = '';
+      document.getElementById('fileInput').value = '';
+      document.getElementById('cameraInput').value = '';
+      document.getElementById('uploadEmptyState').classList.remove('hidden');
+      document.getElementById('previewContainer').classList.add('hidden');
+      document.getElementById('ocrProgressWrap').classList.add('hidden');
+    }
+
+    document.getElementById('btnCamera').addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('cameraInput').click();
+    });
+    document.getElementById('btnUploadFile').addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('fileInput').click();
+    });
+    document.getElementById('dropZone').addEventListener('click', () => {
+      if (!currentImageDataUrl) document.getElementById('fileInput').click();
+    });
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) handleImageSelected(e.target.files[0]);
+    });
+    document.getElementById('cameraInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) handleImageSelected(e.target.files[0]);
+    });
+    document.getElementById('btnClearImage').addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearImage();
+    });
+    document.getElementById('btnReRunOcr').addEventListener('click', () => {
+      if (currentImageDataUrl) runOCR(currentImageDataUrl);
+    });
+
+    const dropZone = document.getElementById('dropZone');
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.classList.add('drop-active'); });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+      dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.classList.remove('drop-active'); });
+    });
+    dropZone.addEventListener('drop', (e) => {
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) handleImageSelected(file);
+    });
+
+    document.getElementById('btnSampleReceipt').addEventListener('click', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 520;
+      canvas.height = 680;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fcfcf9';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#1e293b';
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 28px monospace';
+      ctx.fillText('PETRONAS DAGANGAN BHD', 260, 75);
+      ctx.font = '18px monospace';
+      ctx.fillText('STESEN KUANTAN BYPASS', 260, 108);
+      ctx.fillText('Tel: 09-514-8821', 260, 136);
+      ctx.fillText('------------------------------------', 260, 170);
+
+      ctx.textAlign = 'left';
+      ctx.font = '19px monospace';
+      const todayStr = new Date().toISOString().split('T')[0];
+      ctx.fillText(`DATE: ${todayStr}    TIME: 14:22`, 45, 210);
+      ctx.fillText('RECEIPT NO: INV-884920', 45, 242);
+      ctx.fillText('------------------------------------', 45, 275);
+      ctx.fillText('PRIMAX 95 (40.00L)        RM  82.00', 45, 315);
+      ctx.fillText('MESRA COFFEE LATTE        RM   8.50', 45, 352);
+      ctx.fillText('MINERAL WATER 600ML       RM   2.50', 45, 389);
+      ctx.fillText('------------------------------------', 45, 425);
+      ctx.font = 'bold 24px monospace';
+      ctx.fillText('TOTAL AMOUNT             RM  93.00', 45, 468);
+      ctx.font = '18px monospace';
+      ctx.fillText('VISA CARD                 RM  93.00', 45, 508);
+      ctx.fillText('SST (0%)                  RM   0.00', 45, 540);
+      ctx.textAlign = 'center';
+      ctx.fillText('THANK YOU! DRIVE SAFELY', 260, 610);
+
+      handleImageSelected(canvas.toDataURL('image/jpeg', 0.92));
+    });
+
+    async function runOCR(dataUrl) {
+      const progressWrap = document.getElementById('ocrProgressWrap');
+      const progressBar = document.getElementById('ocrProgressBar');
+      const progressText = document.getElementById('ocrProgressText');
+      const progressPct = document.getElementById('ocrProgressPct');
+      const statusBadge = document.getElementById('ocrStatusBadge');
+
+      progressWrap.classList.remove('hidden');
+      progressBar.style.width = '15%';
+      progressPct.textContent = '15%';
+      statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span> Scanning...';
+
+      try {
+        let extracted = null;
+
+        if (geminiKey) {
+          progressText.textContent = 'Analyzing receipt with Gemini AI...';
+          progressBar.style.width = '55%';
+          progressPct.textContent = '55%';
+          extracted = await runGeminiOCR(dataUrl.split(',')[1]);
+        } else {
+          progressText.textContent = 'Running local OCR (Tesseract.js)...';
+          const result = await Tesseract.recognize(dataUrl, 'eng', {
+            logger: (m) => {
+              if (m.status === 'recognizing text') {
+                const pct = Math.max(15, Math.round(m.progress * 100));
+                progressBar.style.width = `${pct}%`;
+                progressPct.textContent = `${pct}%`;
+                progressText.textContent = 'Reading receipt text...';
+              }
+            }
+          });
+          extracted = parseReceiptText(result.data.text || '');
+        }
+
+        applyExtractedData(extracted);
+        progressBar.style.width = '100%';
+        progressPct.textContent = '100%';
+        statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500"></span> OCR complete — please verify fields';
+        showToast('Receipt details extracted! Review and save.', 'success');
+      } catch (err) {
+        console.error('OCR Error:', err);
+        statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-500"></span> OCR partial/failed — fill manually';
+        showToast('OCR could not read clearly. Please enter details manually.', 'warning');
+      } finally {
+        setTimeout(() => progressWrap.classList.add('hidden'), 900);
+      }
+    }
+
+    async function runGeminiOCR(base64Img) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`;
+      const prompt = `Extract receipt data and return ONLY valid JSON with keys: merchant (string), date (YYYY-MM-DD string or empty), amount (number), currency (3-letter code like MYR, USD, SGD), category (one of: "Food & Beverage", "Fuel & Transport", "Office & Supplies", "Utilities & Bills", "Equipment & Hardware", "Travel & Lodging", "Software & Subscriptions", "Medical & Health", "Other"), notes (short 3-6 word summary).`;
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: 'image/jpeg', data: base64Img } }
+            ]
+          }],
+          generationConfig: { responseMimeType: 'application/json' }
+        })
+      });
+
+      if (!res.ok) throw new Error('Gemini API error: ' + res.status);
+      const json = await res.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      return JSON.parse(text);
+    }
+
+    function parseReceiptText(rawText) {
+      const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 1);
+      const fullUpper = rawText.toUpperCase();
+
+      let merchant = '';
+      for (const line of lines.slice(0, 6)) {
+        const cleaned = line.replace(/[^a-zA-Z0-9\s&'.-]/g, '').trim();
+        if (cleaned.length >= 3 && !/^(TAX|INVOICE|RECEIPT|DATE|TIME|TEL|NO|GST|SST)/i.test(cleaned) && !/^\d+$/.test(cleaned)) {
+          merchant = cleaned;
+          break;
+        }
+      }
+
+      let dateStr = '';
+      const isoMatch = rawText.match(/\b(20\d{2})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])\b/);
+      const dmyMatch = rawText.match(/\b(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](20\d{2}|\d{2})\b/);
+      if (isoMatch) {
+        dateStr = `${isoMatch[1]}-${String(isoMatch[2]).padStart(2, '0')}-${String(isoMatch[3]).padStart(2, '0')}`;
+      } else if (dmyMatch) {
+        let yr = dmyMatch[3];
+        if (yr.length === 2) yr = '20' + yr;
+        dateStr = `${yr}-${String(dmyMatch[2]).padStart(2, '0')}-${String(dmyMatch[1]).padStart(2, '0')}`;
+      }
+
+      let currency = 'MYR';
+      if (/\bUSD\b|\$[\s]*\d/.test(fullUpper) && !/\bRM\b|\bMYR\b/.test(fullUpper)) currency = 'USD';
+      else if (/\bSGD\b|S\$/.test(fullUpper)) currency = 'SGD';
+      else if (/\bEUR\b|€/.test(fullUpper)) currency = 'EUR';
+
+      let amount = '';
+      const totalRegex = /(GRAND\s*TOTAL|TOTAL\s*AMOUNT|TOTAL\s*DUE|NETT\s*TOTAL|TOTAL|AMOUNT\s*DUE|BALANCE)[^\d\n]*?(?:RM|MYR|USD|SGD|\$)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})/i;
+      const totalMatch = rawText.match(totalRegex);
+      if (totalMatch) {
+        amount = parseFloat(totalMatch[2].replace(/,/g, '')).toFixed(2);
+      } else {
+        const allNums = [...rawText.matchAll(/(?:RM|MYR|\$|SGD)?\s*(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})\b/gi)]
+          .map(m => parseFloat(m[1].replace(/,/g, '')))
+          .filter(n => !isNaN(n) && n > 0 && n < 1000000);
+        if (allNums.length) {
+          amount = Math.max(...allNums).toFixed(2);
+        }
+      }
+
+      let category = 'Other';
+      if (/PETRONAS|SHELL|CALTEX|BHP|PETRON|GRAB|TOLL|PARKING|FUEL|PRIMAX|DIESEL/i.test(fullUpper)) category = 'Fuel & Transport';
+      else if (/CAFE|COFFEE|STARBUCKS|RESTAURANT|BISTRO|KOPITIAM|MCD|KFC|FOOD|MAMAK|BAKERY|TEA/i.test(fullUpper)) category = 'Food & Beverage';
+      else if (/POPULAR|STATIONERY|MR\.?\s*DIY|OFFICE|PRINT|PAPER|INK/i.test(fullUpper)) category = 'Office & Supplies';
+      else if (/TNB|TENAGA|TM|UNIFI|MAXIS|CELCOM|DIGI|WATER|ELECTRIC|BILL/i.test(fullUpper)) category = 'Utilities & Bills';
+      else if (/HOTEL|RESORT|AIRASIA|MALAYSIA AIRLINES|BOOKING|AGODA|INN/i.test(fullUpper)) category = 'Travel & Lodging';
+      else if (/CLINIC|KLINIK|PHARMACY|FARMASI|HOSPITAL|WATSONS|GUARDIAN|DENTAL/i.test(fullUpper)) category = 'Medical & Health';
+      else if (/HARDWARE|MACHINERY|TOOLS|SAFETY|PPE/i.test(fullUpper)) category = 'Equipment & Hardware';
+
+      return { merchant, date: dateStr, amount, currency, category, notes: '' };
+    }
+
+    function applyExtractedData(data) {
+      if (!data) return;
+      if (data.merchant) document.getElementById('inputMerchant').value = data.merchant;
+      if (data.date) document.getElementById('inputDate').value = data.date;
+      if (data.amount !== undefined && data.amount !== '') document.getElementById('inputAmount').value = Number(data.amount).toFixed(2);
+      if (data.currency) {
+        const sel = document.getElementById('inputCurrency');
+        if ([...sel.options].some(o => o.value === data.currency)) sel.value = data.currency;
+      }
+      if (data.category) {
+        const cat = document.getElementById('inputCategory');
+        if ([...cat.options].some(o => o.value === data.category)) cat.value = data.category;
+      }
+      if (data.notes) document.getElementById('inputNotes').value = data.notes;
+    }
+
+    function updateGoogleStatusUI() {
+      const btn = document.getElementById('btnConnectGoogle');
+      const dot = document.getElementById('googleStatusDot');
+      const label = document.getElementById('googleBtnLabel');
+      const discBtn = document.getElementById('btnDisconnectGoogle');
+      document.getElementById('inputScriptUrl').value = scriptUrl;
+
+      if (scriptUrl) {
+        btn.className = 'inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-200';
+        label.textContent = 'Google Connected';
+        discBtn.classList.remove('hidden');
+      } else {
+        btn.className = 'inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm';
+        dot.className = 'w-2 h-2 rounded-full bg-blue-200';
+        label.textContent = 'Connect Google';
+        discBtn.classList.add('hidden');
+      }
+    }
+
+    async function postToAppsScript(url, payload) {
+      const res = await fetch(url, {
+        method: 'POST',
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error('Unexpected response from Apps Script. Make sure access is set to "Anyone".');
+      }
+    }
+
+    document.getElementById('btnConnectGoogle').addEventListener('click', () => {
+      document.getElementById('appsScriptPreview').textContent = APPS_SCRIPT_CODE;
+      openModal('modalGoogle');
+    });
+
+    document.getElementById('btnCopyAppsScript').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(APPS_SCRIPT_CODE);
+        showToast('Code.gs copied to clipboard!', 'success');
+      } catch {
+        showToast('Could not copy automatically. Please select and copy.', 'warning');
+      }
+    });
+
+    document.getElementById('btnTestGoogle').addEventListener('click', async () => {
+      const url = document.getElementById('inputScriptUrl').value.trim();
+      if (!url || !url.includes('/exec')) {
+        showToast('Please paste a valid Web App URL ending in /exec', 'error');
+        return;
+      }
+      const btn = document.getElementById('btnTestGoogle');
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+      try {
+        const result = await postToAppsScript(url, { action: 'test' });
+        if (result.status === 'success' || result.status === 'ok') {
+          showToast(result.message || 'Connected to Google Sheets & Drive!', 'success');
+        } else {
+          showToast(result.message || 'Connection returned an error.', 'error');
+        }
+      } catch (err) {
+        showToast('Connection failed: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test Connection';
+      }
+    });
+
+    document.getElementById('btnSaveGoogle').addEventListener('click', () => {
+      const url = document.getElementById('inputScriptUrl').value.trim();
+      if (!url || !url.includes('/exec')) {
+        showToast('Please enter a valid Web App URL ending in /exec', 'error');
+        return;
+      }
+      scriptUrl = url;
+      localStorage.setItem(STORAGE_KEYS.SCRIPT_URL, scriptUrl);
+      updateGoogleStatusUI();
+      closeModal('modalGoogle');
+      showToast('Google Sheets & Drive URL saved!', 'success');
+    });
+
+    document.getElementById('btnDisconnectGoogle').addEventListener('click', () => {
+      scriptUrl = '';
+      localStorage.removeItem(STORAGE_KEYS.SCRIPT_URL);
+      updateGoogleStatusUI();
+      showToast('Disconnected from Google.', 'info');
+    });
+
+    function updateOcrLabel() {
+      document.getElementById('activeOcrLabel').textContent = geminiKey ? 'Gemini AI Vision (gemini-2.5-flash)' : 'Built-in Tesseract OCR (Free)';
+      document.getElementById('inputGeminiKey').value = geminiKey;
+    }
+    document.getElementById('btnOcrSettings').addEventListener('click', () => {
+      updateOcrLabel();
+      openModal('modalOcr');
+    });
+    document.getElementById('btnSaveGeminiKey').addEventListener('click', () => {
+      geminiKey = document.getElementById('inputGeminiKey').value.trim();
+      if (geminiKey) localStorage.setItem(STORAGE_KEYS.GEMINI_KEY, geminiKey);
+      else localStorage.removeItem(STORAGE_KEYS.GEMINI_KEY);
+      updateOcrLabel();
+      closeModal('modalOcr');
+      showToast(geminiKey ? 'Gemini AI OCR enabled!' : 'Using free local Tesseract OCR.', 'success');
+    });
+    document.getElementById('btnClearGeminiKey').addEventListener('click', () => {
+      geminiKey = '';
+      localStorage.removeItem(STORAGE_KEYS.GEMINI_KEY);
+      updateOcrLabel();
+      closeModal('modalOcr');
+      showToast('Switched to free local Tesseract OCR.', 'info');
+    });
+
+    async function syncReceiptToGoogle(record) {
+      if (!scriptUrl) return { ok: false, reason: 'not_connected' };
+      try {
+        const payload = {
+          date: record.date,
+          account: record.account,
+          merchant: record.merchant,
+          amount: record.amount,
+          currency: record.currency,
+          category: record.category,
+          taxDeductible: record.taxDeductible,
+          notes: record.notes,
+          mimeType: 'image/jpeg',
+          imageBase64: record.thumbnail ? record.thumbnail.split(',')[1] : ''
+        };
+        const res = await postToAppsScript(scriptUrl, payload);
+        if (res.status === 'success') {
+          record.synced = true;
+          record.driveUrl = res.fileUrl || '';
+          saveState();
+          renderReceipts();
+          return { ok: true };
+        }
+        return { ok: false, reason: res.message || 'Unknown error' };
+      } catch (err) {
+        return { ok: false, reason: err.message };
+      }
+    }
+
+    document.getElementById('receiptForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const saveBtn = document.getElementById('btnSaveReceipt');
+      const saveLabel = document.getElementById('saveBtnLabel');
+      saveBtn.disabled = true;
+      saveLabel.textContent = scriptUrl ? 'Saving & Syncing to Google...' : 'Saving Locally...';
+
+      const record = {
+        id: 'rcpt_' + Date.now(),
+        createdAt: new Date().toISOString(),
+        account: document.getElementById('selectedAccount').value || 'Personal',
+        merchant: document.getElementById('inputMerchant').value.trim(),
+        date: document.getElementById('inputDate').value,
+        amount: parseFloat(document.getElementById('inputAmount').value) || 0,
+        currency: document.getElementById('inputCurrency').value || 'MYR',
+        category: document.getElementById('inputCategory').value || 'Other',
+        taxDeductible: document.getElementById('inputTax').checked,
+        notes: document.getElementById('inputNotes').value.trim(),
+        thumbnail: currentImageDataUrl || '',
+        synced: false,
+        driveUrl: ''
+      };
+
+      receipts.unshift(record);
+      saveState();
+      renderReceipts();
+
+      if (scriptUrl) {
+        const syncRes = await syncReceiptToGoogle(record);
+        if (syncRes.ok) {
+          showToast('Saved to Google Sheets & image uploaded to Drive!', 'success');
+        } else {
+          showToast('Saved locally, but Google sync failed: ' + syncRes.reason, 'warning');
+        }
+      } else {
+        showToast('Saved locally! Connect Google to sync to Sheets & Drive.', 'info');
+      }
+
+      document.getElementById('inputMerchant').value = '';
+      document.getElementById('inputAmount').value = '';
+      document.getElementById('inputNotes').value = '';
+      document.getElementById('inputTax').checked = false;
+      document.getElementById('inputDate').value = new Date().toISOString().split('T')[0];
+      clearImage();
+
+      saveBtn.disabled = false;
+      saveLabel.textContent = 'Save Receipt';
+    });
+
+    function getFilteredReceipts() {
+      const q = document.getElementById('filterSearch').value.trim().toLowerCase();
+      const comp = document.getElementById('filterCompany').value;
+      const cat = document.getElementById('filterCategory').value;
+
+      return receipts.filter(r => {
+        if (comp !== 'ALL' && r.account !== comp) return false;
+        if (cat !== 'ALL' && r.category !== cat) return false;
+        if (taxFilterOnly && !r.taxDeductible) return false;
+        if (q) {
+          const hay = `${r.merchant} ${r.notes} ${r.account} ${r.category} ${r.date}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderReceipts() {
+      const listEl = document.getElementById('receiptList');
+      const filtered = getFilteredReceipts();
+
+      const primaryCurr = filtered[0]?.currency || 'MYR';
+      const total = filtered.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+      const taxTotal = filtered.filter(r => r.taxDeductible).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+      document.getElementById('statTotal').textContent = `${primaryCurr} ${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById('statTaxTotal').textContent = `${primaryCurr} ${taxTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById('statCount').textContent = filtered.length;
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="bg-white rounded-2xl border border-slate-200 p-10 text-center">
+            <div class="w-12 h-12 rounded-full bg-slate-100 mx-auto flex items-center justify-center text-slate-400 mb-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+            </div>
+            <p class="text-sm font-semibold text-slate-700">No receipts found</p>
+            <p class="text-xs text-slate-500 mt-1">Upload a receipt or click "Try Sample Receipt" on the left to get started.</p>
+          </div>`;
+        return;
+      }
+
+      listEl.innerHTML = '';
+      filtered.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'bg-white rounded-2xl border border-slate-200 p-4 shadow-xs hover:border-slate-300 transition flex gap-3.5 items-start';
+
+        const thumbHtml = r.thumbnail
+          ? `<button type="button" data-view-img="${r.id}" class="w-14 h-16 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 shrink-0 hover:opacity-90 transition">
+               <img src="${r.thumbnail}" alt="Receipt" class="w-full h-full object-cover" />
+             </button>`
+          : `<div class="w-14 h-16 rounded-lg border border-slate-200 bg-slate-50 shrink-0 flex items-center justify-center text-slate-300">
+               <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+             </div>`;
+
+        const syncBadge = r.synced
+          ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+               <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Synced
+             </span>`
+          : `<button type="button" data-sync-id="${r.id}" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition">
+               Sync Now
+             </button>`;
+
+        card.innerHTML = `
+          ${thumbHtml}
+          <div class="flex-1 min-w-0">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <h3 class="text-sm font-bold text-slate-900 truncate">${escapeHtml(r.merchant)}</h3>
+                <p class="text-xs text-slate-500 mt-0.5">${escapeHtml(r.date || 'No date')} &bull; ${escapeHtml(r.category)}</p>
+              </div>
+              <div class="text-right shrink-0">
+                <p class="text-sm font-bold text-slate-900">${escapeHtml(r.currency)} ${Number(r.amount).toFixed(2)}</p>
+              </div>
+            </div>
+
+            ${r.notes ? `<p class="text-xs text-slate-600 mt-1.5 line-clamp-2">${escapeHtml(r.notes)}</p>` : ''}
+
+            <div class="flex flex-wrap items-center justify-between gap-2 mt-3 pt-2.5 border-t border-slate-100">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700">${escapeHtml(r.account)}</span>
+                ${r.taxDeductible ? '<span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">Tax Claimable</span>' : ''}
+                ${syncBadge}
+                ${r.driveUrl ? `<a href="${escapeHtml(r.driveUrl)}" target="_blank" rel="noopener" class="text-[11px] font-medium text-blue-600 hover:underline ml-1">View in Drive &nearr;</a>` : ''}
+              </div>
+              <button type="button" data-delete-id="${r.id}" class="text-xs text-slate-400 hover:text-red-600 transition p-1" title="Delete receipt">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        `;
+        listEl.appendChild(card);
+      });
+
+      listEl.querySelectorAll('[data-view-img]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const item = receipts.find(x => x.id === btn.getAttribute('data-view-img'));
+          if (item && item.thumbnail) {
+            document.getElementById('fullPreviewImg').src = item.thumbnail;
+            openModal('modalImagePreview');
+          }
+        });
+      });
+
+      listEl.querySelectorAll('[data-sync-id]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!scriptUrl) {
+            openModal('modalGoogle');
+            showToast('Please connect your Google Apps Script URL first.', 'info');
+            return;
+          }
+          const item = receipts.find(x => x.id === btn.getAttribute('data-sync-id'));
+          if (!item) return;
+          btn.disabled = true;
+          btn.textContent = 'Syncing...';
+          const res = await syncReceiptToGoogle(item);
+          if (res.ok) showToast('Synced to Google Sheets & Drive!', 'success');
+          else {
+            showToast('Sync failed: ' + res.reason, 'error');
             renderReceipts();
-            bindEvents();
-        }
-
-        function setDefaultDate() {
-            const today = new Date().toISOString().split('T')[0];
-            if (!el.dateInput.value) el.dateInput.value = today;
-        }
-
-        function loadFromStorage() {
-            try {
-                const savedReceipts = localStorage.getItem(STORAGE_KEY_RECEIPTS);
-                receipts = savedReceipts ? JSON.parse(savedReceipts) : [];
-                const savedAccounts = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
-                accounts = savedAccounts ? JSON.parse(savedAccounts) : ['Personal', 'Company / Business'];
-                if (!Array.isArray(accounts) || accounts.length === 0) {
-                    accounts = ['Personal', 'Company / Business'];
-                }
-                selectedAccount = accounts[0];
-                webhookUrl = localStorage.getItem(STORAGE_KEY_WEBHOOK) || '';
-                el.webhookUrlInput.value = webhookUrl;
-            } catch (err) {
-                console.error('Failed to load local storage:', err);
-                receipts = [];
-                accounts = ['Personal', 'Company / Business'];
-                selectedAccount = accounts[0];
-            }
-        }
-
-        function persistAccounts() {
-            try {
-                localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts));
-            } catch (err) {
-                console.error('Failed to save accounts:', err);
-            }
-        }
-
-        function persistReceipts() {
-            try {
-                localStorage.setItem(STORAGE_KEY_RECEIPTS, JSON.stringify(receipts));
-            } catch (err) {
-                if (err.name === 'QuotaExceededError' && receipts.length > 1) {
-                    for (let i = receipts.length - 1; i >= 1; i--) {
-                        if (receipts[i].thumbnail) {
-                            receipts[i].thumbnail = null;
-                            break;
-                        }
-                    }
-                    try {
-                        localStorage.setItem(STORAGE_KEY_RECEIPTS, JSON.stringify(receipts));
-                    } catch (_) {
-                        showToast('Local storage full. Consider syncing to Google Drive.', 'warning');
-                    }
-                }
-            }
-        }
-
-        // =========================================================================
-        // TOAST NOTIFICATIONS
-        // =========================================================================
-        function showToast(message, type = 'info') {
-            const colors = {
-                success: 'bg-emerald-600 text-white',
-                error: 'bg-rose-600 text-white',
-                warning: 'bg-amber-500 text-white',
-                info: 'bg-slate-900 text-white'
-            };
-            const icons = {
-                success: 'check-circle-2',
-                error: 'alert-circle',
-                warning: 'alert-triangle',
-                info: 'info'
-            };
-
-            const toast = document.createElement('div');
-            toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-xs sm:text-sm font-medium transform transition-all duration-300 translate-y-2 opacity-0 ${colors[type] || colors.info}`;
-            toast.innerHTML = `<i data-lucide="${icons[type] || 'info'}" class="w-4 h-4 shrink-0"></i><span>${escapeHtml(message)}</span>`;
-            el.toastContainer.appendChild(toast);
-            lucide.createIcons({ nodes: [toast] });
-
-            requestAnimationFrame(() => {
-                toast.classList.remove('translate-y-2', 'opacity-0');
-            });
-
-            setTimeout(() => {
-                toast.classList.add('translate-y-2', 'opacity-0');
-                setTimeout(() => toast.remove(), 300);
-            }, 3500);
-        }
-
-        function escapeHtml(str) {
-            return String(str || '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        }
-
-        // =========================================================================
-        // IMAGE PROCESSING & COMPRESSION
-        // =========================================================================
-        function processImageFile(file) {
-            if (!file || !file.type.startsWith('image/')) {
-                showToast('Please select a valid image file.', 'error');
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    const MAX_DIM = 1400;
-                    let width = img.width;
-                    let height = img.height;
-                    if (width > height && width > MAX_DIM) {
-                        height = Math.round((height * MAX_DIM) / width);
-                        width = MAX_DIM;
-                    } else if (height > MAX_DIM) {
-                        width = Math.round((width * MAX_DIM) / height);
-                        height = MAX_DIM;
-                    }
-
-                    const canvas = document.createElement('canvas');
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.84);
-                    setActiveImage(compressedDataUrl, 'image/jpeg');
-                    runGeminiOCR();
-                };
-                img.onerror = () => showToast('Could not read the selected image.', 'error');
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-        }
-
-        function setActiveImage(dataUrl, mimeType) {
-            currentImageDataUrl = dataUrl;
-            currentImageMime = mimeType;
-            currentImageBase64 = dataUrl.split(',')[1];
-            el.receiptPreviewImg.src = dataUrl;
-            el.uploadPrompt.classList.add('hidden');
-            el.imagePreviewWrapper.classList.remove('hidden');
-        }
-
-        function clearActiveImage() {
-            currentImageDataUrl = null;
-            currentImageBase64 = null;
-            el.receiptPreviewImg.src = '';
-            el.fileUploadInput.value = '';
-            el.cameraCaptureInput.value = '';
-            el.uploadPrompt.classList.remove('hidden');
-            el.imagePreviewWrapper.classList.add('hidden');
-            el.aiBadge.classList.add('hidden');
-        }
-
-        function generateSampleReceipt() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 520;
-            canvas.height = 720;
-            const ctx = canvas.getContext('2d');
-
-            ctx.fillStyle = '#fdfcf7';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            ctx.fillStyle = '#1e293b';
-            ctx.textAlign = 'center';
-            ctx.font = 'bold 28px monospace';
-            ctx.fillText('KOPI & ROAST CAFE', 260, 70);
-            ctx.font = '15px monospace';
-            ctx.fillStyle = '#475569';
-            ctx.fillText('No. 42 Jalan Teluk Sisek', 260, 98);
-            ctx.fillText('25000 Kuantan, Pahang', 260, 120);
-            ctx.fillText('Tel: 09-514-8821', 260, 142);
-
-            ctx.fillStyle = '#94a3b8';
-            ctx.fillText('----------------------------------------', 260, 175);
-
-            ctx.textAlign = 'left';
-            ctx.fillStyle = '#1e293b';
-            ctx.font = '16px monospace';
-            const todayStr = new Date().toISOString().split('T')[0];
-            ctx.fillText(`DATE: ${todayStr}   TIME: 13:45`, 45, 210);
-            ctx.fillText('RECEIPT #: KR-2026-0894', 45, 236);
-            ctx.fillStyle = '#94a3b8';
-            ctx.fillText('----------------------------------------', 45, 265);
-
-            const items = [
-                ['1x Iced Caramel Latte', '14.50'],
-                ['1x Butter Croissant', '9.90'],
-                ['1x Chicken Pesto Sandwich', '18.50'],
-                ['1x Mineral Water', '3.50']
-            ];
-            let y = 305;
-            ctx.fillStyle = '#0f172a';
-            items.forEach(([name, price]) => {
-                ctx.textAlign = 'left';
-                ctx.fillText(name, 45, y);
-                ctx.textAlign = 'right';
-                ctx.fillText(price, 475, y);
-                y += 34;
-            });
-
-            ctx.textAlign = 'left';
-            ctx.fillStyle = '#94a3b8';
-            ctx.fillText('----------------------------------------', 45, y + 10);
-
-            y += 45;
-            ctx.fillStyle = '#334155';
-            ctx.fillText('Subtotal', 45, y);
-            ctx.textAlign = 'right';
-            ctx.fillText('46.40', 475, y);
-
-            y += 30;
-            ctx.textAlign = 'left';
-            ctx.fillText('SST (6%)', 45, y);
-            ctx.textAlign = 'right';
-            ctx.fillText('2.78', 475, y);
-
-            y += 45;
-            ctx.font = 'bold 24px monospace';
-            ctx.fillStyle = '#0f172a';
-            ctx.textAlign = 'left';
-            ctx.fillText('TOTAL (MYR)', 45, y);
-            ctx.textAlign = 'right';
-            ctx.fillText('49.18', 475, y);
-
-            y += 65;
-            ctx.font = '15px monospace';
-            ctx.fillStyle = '#64748b';
-            ctx.textAlign = 'center';
-            ctx.fillText('PAID VIA VISA **** 4821', 260, y);
-            ctx.fillText('Thank you for visiting us!', 260, y + 28);
-
-            const sampleDataUrl = canvas.toDataURL('image/jpeg', 0.9);
-            setActiveImage(sampleDataUrl, 'image/jpeg');
-            runGeminiOCR();
-        }
-
-        // =========================================================================
-        // GEMINI AI OCR
-        // =========================================================================
-        async function fetchWithBackoff(url, options, maxRetries = 4) {
-            let delay = 1000;
-            for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                try {
-                    const response = await fetch(url, options);
-                    if (response.ok) return response;
-                    if (response.status === 429 || response.status >= 500) {
-                        if (attempt === maxRetries) throw new Error(`HTTP ${response.status}`);
-                        await new Promise(r => setTimeout(r, delay));
-                        delay *= 2;
-                        continue;
-                    }
-                    const errText = await response.text();
-                    throw new Error(`API Error ${response.status}: ${errText}`);
-                } catch (err) {
-                    if (attempt === maxRetries) throw err;
-                    await new Promise(r => setTimeout(r, delay));
-                    delay *= 2;
-                }
-            }
-        }
-
-        async function runGeminiOCR() {
-            if (!currentImageBase64) return;
-
-            el.ocrLoadingOverlay.classList.remove('hidden');
-            el.aiBadge.classList.add('hidden');
-            el.saveReceiptBtn.disabled = true;
-
-            const prompt = `Analyze this receipt image carefully and extract the following structured information:
-- merchant: The business or store name.
-- date: The transaction date formatted strictly as YYYY-MM-DD. If unclear, use today's date (${new Date().toISOString().split('T')[0]}).
-- amount: The final grand total paid as a plain number (no currency symbol).
-- currency: 3-letter ISO currency code (e.g., MYR, USD, SGD, EUR, GBP, JPY). Look for RM/MYR, $, etc. Default to MYR if RM is shown or ambiguous.
-- category: Pick the closest match from ["Food & Dining", "Groceries", "Transport & Fuel", "Shopping", "Utilities & Bills", "Health & Pharmacy", "Office & Business", "Other"].
-- notes: A concise 3-8 word summary of the main items purchased.`;
-
-            const payload = {
-                contents: [{
-                    role: "user",
-                    parts: [
-                        { text: prompt },
-                        {
-                            inlineData: {
-                                mimeType: currentImageMime,
-                                data: currentImageBase64
-                            }
-                        }
-                    ]
-                }],
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: "OBJECT",
-                        properties: {
-                            merchant: { type: "STRING" },
-                            date: { type: "STRING" },
-                            amount: { type: "NUMBER" },
-                            currency: { type: "STRING" },
-                            category: { type: "STRING" },
-                            notes: { type: "STRING" }
-                        },
-                        required: ["merchant", "date", "amount", "currency", "category", "notes"]
-                    }
-                }
-            };
-
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
-
-            try {
-                const response = await fetchWithBackoff(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-                if (!rawText) throw new Error('Empty OCR response from AI.');
-                const parsed = JSON.parse(rawText);
-
-                if (parsed.merchant) el.merchantInput.value = parsed.merchant;
-                if (parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date)) {
-                    el.dateInput.value = parsed.date;
-                }
-                if (typeof parsed.amount === 'number' && !isNaN(parsed.amount)) {
-                    el.amountInput.value = parsed.amount.toFixed(2);
-                }
-                if (parsed.currency) {
-                    const exists = Array.from(el.currencyInput.options).some(o => o.value === parsed.currency.toUpperCase());
-                    if (exists) el.currencyInput.value = parsed.currency.toUpperCase();
-                }
-                if (parsed.category) {
-                    const exists = Array.from(el.categoryInput.options).some(o => o.value === parsed.category);
-                    el.categoryInput.value = exists ? parsed.category : 'Other';
-                }
-                if (parsed.notes) el.notesInput.value = parsed.notes;
-
-                el.aiBadge.classList.remove('hidden');
-                showToast('Receipt details extracted by AI!', 'success');
-            } catch (err) {
-                console.error('OCR Error:', err);
-                showToast('Could not auto-read receipt. Please enter details manually.', 'warning');
-            } finally {
-                el.ocrLoadingOverlay.classList.add('hidden');
-                el.saveReceiptBtn.disabled = false;
-            }
-        }
-
-        // =========================================================================
-        // GOOGLE SHEETS & DRIVE SYNC
-        // =========================================================================
-        async function syncReceiptToGoogle(record, imageBase64, mimeType) {
-            if (!webhookUrl) return { synced: false };
-
-            const payload = {
-                merchant: record.merchant,
-                date: record.date,
-                amount: record.amount,
-                currency: record.currency,
-                category: record.category,
-                account: record.account || 'Personal',
-                taxDeductible: Boolean(record.taxDeductible),
-                notes: record.notes,
-                imageBase64: imageBase64 || null,
-                mimeType: mimeType || 'image/jpeg'
-            };
-
-            const response = await fetch(webhookUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                throw new Error(`Google Script returned HTTP ${response.status}`);
-            }
-
-            const data = await response.json();
-            if (data.status === 'success') {
-                return { synced: true, driveUrl: data.fileUrl || '' };
-            }
-            throw new Error(data.message || 'Unknown Google Apps Script error');
-        }
-
-        async function testGoogleConnection() {
-            const url = el.webhookUrlInput.value.trim();
-            if (!url) {
-                showToast('Please paste your Google Apps Script Web App URL first.', 'warning');
-                return;
-            }
-
-            el.testWebhookBtn.disabled = true;
-            el.testWebhookBtn.textContent = 'Testing...';
-            try {
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action: 'test' })
-                });
-                const data = await res.json();
-                if (data.status === 'success') {
-                    showToast(data.message || 'Connected to Google Sheets & Drive!', 'success');
-                } else {
-                    showToast('Script responded with an error: ' + (data.message || 'Check deployment'), 'error');
-                }
-            } catch (err) {
-                showToast('Connection failed. Ensure Web App access is set to "Anyone".', 'error');
-            } finally {
-                el.testWebhookBtn.disabled = false;
-                el.testWebhookBtn.textContent = 'Test Connection';
-            }
-        }
-
-        function updateConnectionUI() {
-            if (webhookUrl) {
-                el.openSetupBtn.className = 'inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition-all active:scale-[0.98] cursor-pointer';
-                el.syncStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
-                el.syncStatusText.textContent = 'Google Connected';
-                el.saveBtnLabel.textContent = 'Save & Sync to Google';
-            } else {
-                el.openSetupBtn.className = 'inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-all active:scale-[0.98] cursor-pointer';
-                el.syncStatusDot.className = 'w-2 h-2 rounded-full bg-amber-500';
-                el.syncStatusText.textContent = 'Connect Google';
-                el.saveBtnLabel.textContent = 'Save Receipt Locally';
-            }
-        }
-
-        // =========================================================================
-        // COMPANY / ACCOUNT REGISTRY MANAGEMENT
-        // =========================================================================
-        function renderAccountUI() {
-            el.accountTickList.innerHTML = accounts.map(acc => {
-                const isSelected = acc === selectedAccount;
-                return `
-                    <button type="button" onclick="selectAccount('${escapeHtml(acc).replace(/'/g, "\\'")}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                        isSelected
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40'
-                    }">
-                        <i data-lucide="${isSelected ? 'check-square' : 'square'}" class="w-3.5 h-3.5"></i>
-                        <span>${escapeHtml(acc)}</span>
-                    </button>
-                `;
-            }).join('');
-            lucide.createIcons({ nodes: [el.accountTickList] });
-
-            const prevFilter = el.filterAccount.value || 'ALL';
-            const allKnownAccounts = Array.from(new Set([
-                ...accounts,
-                ...receipts.map(r => r.account).filter(Boolean)
-            ]));
-            el.filterAccount.innerHTML = `<option value="ALL">All Companies / Accounts</option>` +
-                allKnownAccounts.map(acc => `<option value="${escapeHtml(acc)}">${escapeHtml(acc)}</option>`).join('');
-            el.filterAccount.value = allKnownAccounts.includes(prevFilter) ? prevFilter : 'ALL';
-
-            el.manageAccountsList.innerHTML = accounts.map(acc => {
-                const count = receipts.filter(r => (r.account || 'Personal') === acc).length;
-                return `
-                    <div class="px-3.5 py-2.5 bg-white flex items-center justify-between gap-2">
-                        <div class="min-w-0">
-                            <p class="text-sm font-semibold text-slate-800 truncate">${escapeHtml(acc)}</p>
-                            <p class="text-[11px] text-slate-400">${count} receipt${count === 1 ? '' : 's'} tagged</p>
-                        </div>
-                        <button type="button" onclick="removeAccount('${escapeHtml(acc).replace(/'/g, "\\'")}')" title="Remove" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer ${accounts.length <= 1 ? 'opacity-30 pointer-events-none' : ''}">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
-                    </div>
-                `;
-            }).join('');
-            lucide.createIcons({ nodes: [el.manageAccountsList] });
-        }
-
-        function selectAccount(name) {
-            selectedAccount = name;
-            renderAccountUI();
-        }
-
-        function addAccount(name) {
-            const cleaned = name.trim();
-            if (!cleaned) return;
-            if (accounts.some(a => a.toLowerCase() === cleaned.toLowerCase())) {
-                showToast(`"${cleaned}" is already registered.`, 'warning');
-                return;
-            }
-            accounts.push(cleaned);
-            selectedAccount = cleaned;
-            persistAccounts();
-            renderAccountUI();
-            showToast(`Registered "${cleaned}"!`, 'success');
-        }
-
-        function removeAccount(name) {
-            if (accounts.length <= 1) {
-                showToast('Keep at least one company or account.', 'warning');
-                return;
-            }
-            accounts = accounts.filter(a => a !== name);
-            if (selectedAccount === name) selectedAccount = accounts[0];
-            persistAccounts();
-            renderAccountUI();
-            showToast(`Removed "${name}" from registry.`, 'info');
-        }
-
-        // =========================================================================
-        // FORM SUBMISSION & RECORD MANAGEMENT
-        // =========================================================================
-        async function handleFormSubmit(e) {
-            e.preventDefault();
-
-            const merchant = el.merchantInput.value.trim();
-            const date = el.dateInput.value;
-            const amount = parseFloat(el.amountInput.value);
-            const currency = el.currencyInput.value;
-            const category = el.categoryInput.value;
-            const account = selectedAccount || accounts[0] || 'Personal';
-            const taxDeductible = el.taxDeductibleInput.checked;
-            const notes = el.notesInput.value.trim();
-
-            if (!merchant || !date || isNaN(amount)) {
-                showToast('Please complete Merchant, Date, and Amount.', 'warning');
-                return;
-            }
-
-            el.saveReceiptBtn.disabled = true;
-            const originalLabel = el.saveBtnLabel.textContent;
-            el.saveBtnLabel.textContent = webhookUrl ? 'Uploading to Drive & Sheets...' : 'Saving...';
-
-            const newRecord = {
-                id: 'rcpt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-                merchant,
-                date,
-                amount,
-                currency,
-                category,
-                account,
-                taxDeductible,
-                notes,
-                thumbnail: currentImageDataUrl,
-                synced: false,
-                driveUrl: '',
-                createdAt: new Date().toISOString()
-            };
-
-            if (webhookUrl) {
-                try {
-                    const syncResult = await syncReceiptToGoogle(newRecord, currentImageBase64, currentImageMime);
-                    if (syncResult.synced) {
-                        newRecord.synced = true;
-                        newRecord.driveUrl = syncResult.driveUrl;
-                        showToast('Saved to Google Sheets & Drive!', 'success');
-                    }
-                } catch (err) {
-                    console.error('Google Sync Error:', err);
-                    showToast('Saved locally. Google sync failed — you can retry anytime.', 'warning');
-                }
-            } else {
-                showToast('Receipt saved locally. Connect Google to sync to Sheets & Drive.', 'info');
-            }
-
-            receipts.unshift(newRecord);
-            persistReceipts();
-            renderAccountUI();
-            renderReceipts();
-
-            el.receiptForm.reset();
-            setDefaultDate();
-            clearActiveImage();
-            el.saveReceiptBtn.disabled = false;
-            el.saveBtnLabel.textContent = originalLabel;
-        }
-
-        async function resyncSingleReceipt(id) {
-            if (!webhookUrl) {
-                openSetupModal();
-                showToast('Connect your Google Apps Script URL to sync.', 'info');
-                return;
-            }
-
-            const record = receipts.find(r => r.id === id);
-            if (!record) return;
-
-            const btn = document.querySelector(`[data-resync-id="${id}"]`);
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i>`;
-                lucide.createIcons({ nodes: [btn] });
-            }
-
-            try {
-                const rawBase64 = record.thumbnail ? record.thumbnail.split(',')[1] : null;
-                const result = await syncReceiptToGoogle(record, rawBase64, 'image/jpeg');
-                if (result.synced) {
-                    record.synced = true;
-                    record.driveUrl = result.driveUrl;
-                    persistReceipts();
-                    renderReceipts();
-                    showToast('Synced to Google Sheets & Drive!', 'success');
-                }
-            } catch (err) {
-                console.error('Resync failed:', err);
-                showToast('Sync failed. Check your Google Apps Script URL.', 'error');
-                renderReceipts();
-            }
-        }
-
-        // =========================================================================
-        // RENDERING & STATS
-        // =========================================================================
-        function updateStats() {
-            const totalCount = receipts.length;
-            const syncedCount = receipts.filter(r => r.synced).length;
-            const primaryCurrency = receipts[0]?.currency || 'MYR';
-            const totalSum = receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-
-            const currentMonthPrefix = new Date().toISOString().slice(0, 7);
-            const monthSum = receipts
-                .filter(r => (r.date || '').startsWith(currentMonthPrefix))
-                .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-
-            el.statTotalAmount.textContent = `${primaryCurrency} ${totalSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            el.statMonthAmount.textContent = `This month: ${primaryCurrency} ${monthSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            el.statTotalCount.textContent = totalCount;
-            el.statSyncedCount.textContent = `${syncedCount} / ${totalCount}`;
-            el.statSyncHint.textContent = webhookUrl ? 'Auto-sync enabled' : 'Click "Connect Google" to enable';
-        }
-
-        function getFilteredReceipts() {
-            const query = el.searchInput.value.trim().toLowerCase();
-            const accFilter = el.filterAccount.value;
-            const catFilter = el.filterCategory.value;
-            const taxOnly = el.filterTaxOnly.checked;
-
-            return receipts.filter(r => {
-                const recordAcc = r.account || 'Personal';
-                const matchesQuery = !query ||
-                    (r.merchant || '').toLowerCase().includes(query) ||
-                    (r.notes || '').toLowerCase().includes(query) ||
-                    recordAcc.toLowerCase().includes(query) ||
-                    (r.date || '').includes(query);
-                const matchesAcc = accFilter === 'ALL' || recordAcc === accFilter;
-                const matchesCat = catFilter === 'ALL' || r.category === catFilter;
-                const matchesTax = !taxOnly || Boolean(r.taxDeductible);
-                return matchesQuery && matchesAcc && matchesCat && matchesTax;
-            });
-        }
-
-        function renderReceipts() {
-            updateStats();
-
-            const filtered = getFilteredReceipts();
-            const hasActiveFilter = el.searchInput.value.trim() !== '' ||
-                el.filterAccount.value !== 'ALL' ||
-                el.filterCategory.value !== 'ALL' ||
-                el.filterTaxOnly.checked;
-
-            if (hasActiveFilter && filtered.length > 0) {
-                const filteredSum = filtered.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-                const curr = filtered[0]?.currency || 'MYR';
-                const labelParts = [];
-                if (el.filterAccount.value !== 'ALL') labelParts.push(el.filterAccount.value);
-                if (el.filterTaxOnly.checked) labelParts.push('Tax Deductible');
-                const scopeLabel = labelParts.length ? labelParts.join(' • ') : 'Filtered';
-                el.filteredSummaryText.textContent = `${scopeLabel}: ${filtered.length} receipt${filtered.length === 1 ? '' : 's'} — Total ${curr} ${filteredSum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                el.filteredSummaryBar.classList.remove('hidden');
-            } else {
-                el.filteredSummaryBar.classList.add('hidden');
-            }
-
-            if (filtered.length === 0) {
-                el.receiptList.innerHTML = `
-                    <div class="p-10 text-center flex flex-col items-center justify-center text-slate-400">
-                        <div class="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mb-3">
-                            <i data-lucide="inbox" class="w-6 h-6 text-slate-300"></i>
-                        </div>
-                        <p class="text-sm font-semibold text-slate-600">${receipts.length === 0 ? 'No receipts recorded yet' : 'No matching receipts found'}</p>
-                        <p class="text-xs text-slate-400 mt-1 max-w-xs">${receipts.length === 0 ? 'Snap a photo, upload a receipt, or click "Try Sample Receipt" to see AI extraction in action.' : 'Try adjusting your search or filter settings.'}</p>
-                    </div>
-                `;
-                lucide.createIcons({ nodes: [el.receiptList] });
-                return;
-            }
-
-            el.receiptList.innerHTML = filtered.map(r => {
-                const recordAcc = r.account || 'Personal';
-                const thumbHtml = r.thumbnail
-                    ? `<button type="button" onclick="openViewer('${r.id}')" class="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 shrink-0 hover:ring-2 hover:ring-indigo-400 transition-all cursor-pointer">
-                           <img src="${r.thumbnail}" alt="Receipt" class="w-full h-full object-cover">
-                       </button>`
-                    : `<div class="w-12 h-12 rounded-xl border border-slate-200 bg-slate-50 text-slate-400 flex items-center justify-center shrink-0">
-                           <i data-lucide="receipt" class="w-5 h-5"></i>
-                       </div>`;
-
-                const taxBadge = r.taxDeductible
-                    ? `<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">
-                           <i data-lucide="badge-check" class="w-3 h-3"></i>
-                           Tax
-                       </span>`
-                    : '';
-
-                const syncBadge = r.synced
-                    ? (r.driveUrl
-                        ? `<a href="${escapeHtml(r.driveUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full transition-colors">
-                               <i data-lucide="cloud-check" class="w-3 h-3"></i>
-                               Drive & Sheet
-                           </a>`
-                        : `<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                               <i data-lucide="cloud-check" class="w-3 h-3"></i>
-                               Synced
-                           </span>`)
-                    : `<button type="button" data-resync-id="${r.id}" onclick="resyncSingleReceipt('${r.id}')" title="Sync to Google Sheets & Drive" class="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full transition-colors cursor-pointer">
-                           <i data-lucide="cloud-upload" class="w-3 h-3"></i>
-                           Sync Now
-                       </button>`;
-
-                return `
-                    <div class="p-4 hover:bg-slate-50/70 transition-colors flex items-center gap-3.5">
-                        ${thumbHtml}
-                        <div class="min-w-0 flex-1">
-                            <div class="flex items-center justify-between gap-2">
-                                <h3 class="font-bold text-slate-900 text-sm truncate">${escapeHtml(r.merchant)}</h3>
-                                <span class="font-extrabold text-slate-900 text-sm shrink-0">${escapeHtml(r.currency)} ${Number(r.amount).toFixed(2)}</span>
-                            </div>
-                            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-slate-500">
-                                <span class="inline-flex items-center gap-1">
-                                    <i data-lucide="calendar" class="w-3 h-3 text-slate-400"></i>
-                                    ${escapeHtml(r.date)}
-                                </span>
-                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[11px] font-semibold">
-                                    <i data-lucide="building-2" class="w-3 h-3"></i>
-                                    ${escapeHtml(recordAcc)}
-                                </span>
-                                <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[11px] font-medium">${escapeHtml(r.category)}</span>
-                                ${taxBadge}
-                                ${syncBadge}
-                            </div>
-                            ${r.notes ? `<p class="text-xs text-slate-400 truncate mt-1">${escapeHtml(r.notes)}</p>` : ''}
-                        </div>
-                        <button type="button" onclick="promptDelete('${r.id}')" title="Delete Receipt" class="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 cursor-pointer">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
-                    </div>
-                `;
-            }).join('');
-
-            lucide.createIcons({ nodes: [el.receiptList] });
-        }
-
-        // =========================================================================
-        // MODALS & CSV EXPORT
-        // =========================================================================
-        function openSetupModal() {
-            el.webhookUrlInput.value = webhookUrl;
-            el.setupModal.classList.remove('hidden');
-        }
-
-        function closeSetupModal() {
-            el.setupModal.classList.add('hidden');
-        }
-
-        function openViewer(id) {
-            const r = receipts.find(item => item.id === id);
-            if (!r || !r.thumbnail) return;
-            el.viewerTitle.textContent = r.merchant;
-            el.viewerSubtitle.textContent = `${r.date} • ${r.account || 'Personal'} • ${r.currency} ${Number(r.amount).toFixed(2)} • ${r.category}${r.taxDeductible ? ' • Tax Deductible' : ''}`;
-            el.viewerImg.src = r.thumbnail;
-            el.viewerNotes.textContent = r.notes || 'No additional notes';
-            if (r.driveUrl) {
-                el.viewerDriveLink.href = r.driveUrl;
-                el.viewerDriveLink.classList.remove('hidden');
-            } else {
-                el.viewerDriveLink.classList.add('hidden');
-            }
-            el.viewerModal.classList.remove('hidden');
-        }
-
-        function promptDelete(id) {
-            pendingDeleteId = id;
-            el.deleteModal.classList.remove('hidden');
-        }
-
-        function exportToCSV(useFiltered = false) {
-            const list = useFiltered ? getFilteredReceipts() : receipts;
-            if (list.length === 0) {
-                showToast('No receipts to export.', 'warning');
-                return;
-            }
-            const headers = ['Date', 'Account / Company', 'Merchant', 'Amount', 'Currency', 'Category', 'Tax Deductible', 'Notes', 'Synced', 'Drive Link'];
-            const rows = list.map(r => [
-                r.date,
-                `"${(r.account || 'Personal').replace(/"/g, '""')}"`,
-                `"${(r.merchant || '').replace(/"/g, '""')}"`,
-                Number(r.amount).toFixed(2),
-                r.currency,
-                `"${(r.category || '').replace(/"/g, '""')}"`,
-                r.taxDeductible ? 'Yes' : 'No',
-                `"${(r.notes || '').replace(/"/g, '""')}"`,
-                r.synced ? 'Yes' : 'No',
-                r.driveUrl || ''
-            ].join(','));
-
-            const csv = [headers.join(','), ...rows].join('\n');
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            const scopeTag = useFiltered && el.filterAccount.value !== 'ALL'
-                ? el.filterAccount.value.replace(/[^a-zA-Z0-9_-]/g, '_')
-                : (useFiltered ? 'Filtered' : 'All');
-            link.href = url;
-            link.download = `SnapLedger_${scopeTag}_${new Date().toISOString().split('T')[0]}.csv`;
-            link.click();
-            URL.revokeObjectURL(url);
-            showToast(`Exported ${list.length} receipt${list.length === 1 ? '' : 's'} to CSV!`, 'success');
-        }
-
-        function copyAppsScript() {
-            const text = el.gasCodeBlock.textContent;
-            const textarea = document.createElement('textarea');
-            textarea.value = text;
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-            try {
-                document.execCommand('copy');
-                showToast('Apps Script copied to clipboard!', 'success');
-            } catch (err) {
-                showToast('Failed to copy. Please select and copy manually.', 'error');
-            }
-            document.body.removeChild(textarea);
-        }
-
-        // =========================================================================
-        // EVENT BINDINGS
-        // =========================================================================
-        function bindEvents() {
-            el.triggerUploadBtn.addEventListener('click', () => el.fileUploadInput.click());
-            el.triggerCameraBtn.addEventListener('click', () => el.cameraCaptureInput.click());
-            el.fileUploadInput.addEventListener('change', (e) => {
-                if (e.target.files?.[0]) processImageFile(e.target.files[0]);
-            });
-            el.cameraCaptureInput.addEventListener('change', (e) => {
-                if (e.target.files?.[0]) processImageFile(e.target.files[0]);
-            });
-
-            ['dragenter', 'dragover'].forEach(evt => {
-                el.dropzone.addEventListener(evt, (e) => {
-                    e.preventDefault();
-                    el.dropzone.classList.add('border-indigo-500', 'bg-indigo-50/50');
-                });
-            });
-            ['dragleave', 'drop'].forEach(evt => {
-                el.dropzone.addEventListener(evt, (e) => {
-                    e.preventDefault();
-                    el.dropzone.classList.remove('border-indigo-500', 'bg-indigo-50/50');
-                });
-            });
-            el.dropzone.addEventListener('drop', (e) => {
-                const file = e.dataTransfer?.files?.[0];
-                if (file) processImageFile(file);
-            });
-
-            el.demoReceiptBtn.addEventListener('click', generateSampleReceipt);
-            el.rescanBtn.addEventListener('click', runGeminiOCR);
-            el.clearImageBtn.addEventListener('click', clearActiveImage);
-
-            el.receiptForm.addEventListener('submit', handleFormSubmit);
-
-            el.searchInput.addEventListener('input', renderReceipts);
-            el.filterAccount.addEventListener('change', renderReceipts);
-            el.filterCategory.addEventListener('change', renderReceipts);
-            el.filterTaxOnly.addEventListener('change', renderReceipts);
-            el.exportFilteredBtn.addEventListener('click', () => exportToCSV(true));
-
-            const openAccountsModal = () => {
-                renderAccountUI();
-                el.accountsModal.classList.remove('hidden');
-                setTimeout(() => el.newAccountNameInput.focus(), 50);
-            };
-            const closeAccountsModal = () => el.accountsModal.classList.add('hidden');
-
-            el.openAccountsBtn.addEventListener('click', openAccountsModal);
-            el.inlineAddAccountBtn.addEventListener('click', openAccountsModal);
-            el.closeAccountsModal.addEventListener('click', closeAccountsModal);
-            el.accountsModal.addEventListener('click', (e) => {
-                if (e.target === el.accountsModal) closeAccountsModal();
-            });
-            el.addAccountForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                addAccount(el.newAccountNameInput.value);
-                el.newAccountNameInput.value = '';
-            });
-
-            el.openSetupBtn.addEventListener('click', openSetupModal);
-            el.closeSetupModal.addEventListener('click', closeSetupModal);
-            el.setupModal.addEventListener('click', (e) => {
-                if (e.target === el.setupModal) closeSetupModal();
-            });
-
-            el.saveWebhookBtn.addEventListener('click', () => {
-                webhookUrl = el.webhookUrlInput.value.trim();
-                localStorage.setItem(STORAGE_KEY_WEBHOOK, webhookUrl);
-                updateConnectionUI();
-                updateStats();
-                closeSetupModal();
-                showToast(webhookUrl ? 'Google Sync URL saved!' : 'Switched to local-only mode.', 'success');
-            });
-            el.testWebhookBtn.addEventListener('click', testGoogleConnection);
-            el.copyScriptBtn.addEventListener('click', copyAppsScript);
-
-            el.exportCsvBtn.addEventListener('click', () => exportToCSV(false));
-
-            el.closeViewerModal.addEventListener('click', () => el.viewerModal.classList.add('hidden'));
-            el.viewerModal.addEventListener('click', (e) => {
-                if (e.target === el.viewerModal) el.viewerModal.classList.add('hidden');
-            });
-
-            el.cancelDeleteBtn.addEventListener('click', () => {
-                pendingDeleteId = null;
-                el.deleteModal.classList.add('hidden');
-            });
-            el.confirmDeleteBtn.addEventListener('click', () => {
-                if (pendingDeleteId) {
-                    receipts = receipts.filter(r => r.id !== pendingDeleteId);
-                    persistReceipts();
-                    renderAccountUI();
-                    renderReceipts();
-                    showToast('Receipt deleted.', 'info');
-                }
-                pendingDeleteId = null;
-                el.deleteModal.classList.add('hidden');
-            });
-        }
-
-        window.openViewer = openViewer;
-        window.promptDelete = promptDelete;
-        window.resyncSingleReceipt = resyncSingleReceipt;
-        window.selectAccount = selectAccount;
-        window.removeAccount = removeAccount;
-
-        window.addEventListener('DOMContentLoaded', init);
-    </script>
-</body>
-</html>
+          }
+        });
+      });
+
+      listEl.querySelectorAll('[data-delete-id]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-delete-id');
+          receipts = receipts.filter(x => x.id !== id);
+          saveState();
+          renderReceipts();
+          showToast('Receipt removed from local ledger.', 'info');
+        });
+      });
+    }
+
+    ['filterSearch', 'filterCompany', 'filterCategory'].forEach(id => {
+      document.getElementById(id).addEventListener('input', renderReceipts);
+      document.getElementById(id).addEventListener('change', renderReceipts);
+    });
+
+    document.getElementById('btnFilterTax').addEventListener('click', (e) => {
+      taxFilterOnly = !taxFilterOnly;
+      const btn = e.currentTarget;
+      btn.setAttribute('data-active', String(taxFilterOnly));
+      if (taxFilterOnly) {
+        btn.className = 'w-full px-2.5 py-2 text-xs font-semibold rounded-lg border border-emerald-600 bg-emerald-600 text-white transition';
+      } else {
+        btn.className = 'w-full px-2.5 py-2 text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 transition';
+      }
+      renderReceipts();
+    });
+
+    document.getElementById('btnExportCsv').addEventListener('click', () => {
+      const filtered = getFilteredReceipts();
+      if (!filtered.length) {
+        showToast('No receipts to export for current filter.', 'warning');
+        return;
+      }
+      const headers = ['Receipt Date', 'Account / Company', 'Merchant', 'Amount', 'Currency', 'Category', 'Tax Deductible', 'Notes', 'Synced', 'Drive File Link'];
+      const rows = filtered.map(r => [
+        r.date, r.account, r.merchant, Number(r.amount).toFixed(2), r.currency,
+        r.category, r.taxDeductible ? 'Yes' : 'No', r.notes, r.synced ? 'Yes' : 'No', r.driveUrl || ''
+      ]);
+
+      const csv = [headers, ...rows]
+        .map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+
+      const comp = document.getElementById('filterCompany').value;
+      const safeComp = comp === 'ALL' ? 'All_Companies' : comp.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const today = new Date().toISOString().split('T')[0];
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `SnapLedger_${safeComp}${taxFilterOnly ? '_TaxOnly' : ''}_${today}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      showToast('CSV exported!', 'success');
