@@ -521,6 +521,7 @@ function doGet() {
     .setMimeType(ContentService.MimeType.JSON);
 }`;
 
+    // Application state
     let receipts = loadJSON(STORAGE_KEYS.RECEIPTS, []);
     let companies = loadJSON(STORAGE_KEYS.COMPANIES, ['Personal', 'Business / Company']);
     let scriptUrl = localStorage.getItem(STORAGE_KEYS.SCRIPT_URL) || '';
@@ -528,6 +529,16 @@ function doGet() {
     let currentImageDataUrl = '';
     let currentImageBase64 = '';
     let taxFilterOnly = false;
+
+    // Escape HTML to prevent XSS when rendering dynamic text
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     function loadJSON(key, fallback) {
       try {
@@ -543,6 +554,7 @@ function doGet() {
         localStorage.setItem(STORAGE_KEYS.RECEIPTS, JSON.stringify(receipts));
         localStorage.setItem(STORAGE_KEYS.COMPANIES, JSON.stringify(companies));
       } catch (e) {
+        // Fallback if localStorage quota is exceeded by cached thumbnails
         receipts.forEach((r, idx) => { if (idx > 15) r.thumbnail = ''; });
         try { localStorage.setItem(STORAGE_KEYS.RECEIPTS, JSON.stringify(receipts)); } catch {}
       }
@@ -1320,3 +1332,14 @@ function doGet() {
       link.click();
       URL.revokeObjectURL(link.href);
       showToast('CSV exported!', 'success');
+    });
+
+    // Initialize UI on page load
+    document.getElementById('inputDate').value = new Date().toISOString().split('T')[0];
+    renderCompanies();
+    updateGoogleStatusUI();
+    updateOcrLabel();
+    renderReceipts();
+  </script>
+</body>
+</html>
